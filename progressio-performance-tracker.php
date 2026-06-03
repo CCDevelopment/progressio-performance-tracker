@@ -33,7 +33,7 @@ require_once PPT_PLUGIN_DIR . 'includes/class-ppt-tracker.php';
 // Plugin update checker (GitHub Releases).
 require_once PPT_PLUGIN_DIR . 'vendor/plugin-update-checker/load-v5p7.php';
 $ppt_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-	'https://github.com/YOUR-GITHUB-USERNAME/YOUR-REPO-NAME/',
+	'https://github.com/CCDevelopment/progressio-performance-tracker/',
 	PPT_PLUGIN_FILE,
 	'progressio-performance-tracker'
 );
