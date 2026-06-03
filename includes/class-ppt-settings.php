@@ -170,11 +170,11 @@ class PPT_Settings {
 		echo '<div style="display:flex;gap:12px;align-items:center;">';
 		echo '<div>';
 		echo '<label style="display:block;font-weight:600;margin-bottom:4px;">' . esc_html__( 'CSS Class', 'progressio-performance-tracker' ) . '</label>';
-		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . "[cta_{$tier}_class]\" value=\"{$class}\" placeholder=\"e.g. btn--action\" class=\"regular-text\" />';
+		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . '[cta_' . $tier . '_class]" value="' . $class . '" placeholder="e.g. btn--action" class="regular-text" />';
 		echo '</div>';
 		echo '<div>';
 		echo '<label style="display:block;font-weight:600;margin-bottom:4px;">' . esc_html__( 'Event Label', 'progressio-performance-tracker' ) . '</label>';
-		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . "[cta_{$tier}_label]\" value=\"{$label}\" placeholder=\"e.g. Primary CTA\" class=\"regular-text\" />';
+		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . '[cta_' . $tier . '_label]" value="' . $label . '" placeholder="e.g. Primary CTA" class="regular-text" />';
 		echo '</div>';
 		echo '</div>';
 		echo '<p class="description">' . esc_html__( 'The label appears in GA4 event parameters for easy filtering.', 'progressio-performance-tracker' ) . '</p>';
