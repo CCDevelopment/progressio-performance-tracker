@@ -38,8 +38,6 @@ $ppt_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdate
 	'progressio-performance-tracker'
 );
 $ppt_update_checker->setBranch( 'master' );
-// To use a private repo, uncomment the next line and add a fine-grained token with read access:
-// $ppt_update_checker->setAuthentication( 'YOUR_GITHUB_TOKEN' );
 
 /**
  * Initialise the plugin.
