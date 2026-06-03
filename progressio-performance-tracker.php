@@ -31,13 +31,15 @@ require_once PPT_PLUGIN_DIR . 'includes/class-ppt-settings.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-tracker.php';
 
 // Plugin update checker (GitHub Releases).
-require_once PPT_PLUGIN_DIR . 'vendor/plugin-update-checker/load-v5p7.php';
-$ppt_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-	'https://github.com/CCDevelopment/progressio-performance-tracker/',
-	PPT_PLUGIN_FILE,
-	'progressio-performance-tracker'
-);
-$ppt_update_checker->setBranch( 'master' );
+if ( file_exists( PPT_PLUGIN_DIR . 'vendor/plugin-update-checker/load-v5p7.php' ) ) {
+	require_once PPT_PLUGIN_DIR . 'vendor/plugin-update-checker/load-v5p7.php';
+	$ppt_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+		'https://github.com/CCDevelopment/progressio-performance-tracker/',
+		PPT_PLUGIN_FILE,
+		'progressio-performance-tracker'
+	);
+	$ppt_update_checker->setBranch( 'master' );
+}
 
 /**
  * Initialise the plugin.
