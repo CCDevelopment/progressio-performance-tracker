@@ -1,2 +1,7 @@
 .DS_Store
 *.zip
+
+# GA4 setup script — never commit deps or credentials
+scripts/**/node_modules/
+scripts/**/*.json
+!scripts/**/package.json

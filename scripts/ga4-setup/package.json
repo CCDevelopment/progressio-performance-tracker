@@ -1,0 +1,13 @@
+{
+  "name": "ppt-ga4-setup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-off utility to register Progressio Performance Tracker event parameters as GA4 custom dimensions via the GA4 Admin API.",
+  "type": "module",
+  "scripts": {
+    "create-dimensions": "node create-custom-dimensions.js"
+  },
+  "dependencies": {
+    "@google-analytics/admin": "^7.0.0"
+  }
+}
