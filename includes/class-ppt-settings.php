@@ -235,7 +235,8 @@ class PPT_Settings {
 	 * @param array $input Raw POST data.
 	 * @return array Sanitized options.
 	 */
-	public function sanitize_options( array $input ): array {
+	public function sanitize_options( $input ): array {
+		$input = (array) $input;
 		$clean = array();
 
 		$clean['measurement_id']      = sanitize_text_field( $input['measurement_id'] ?? '' );

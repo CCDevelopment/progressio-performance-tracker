@@ -77,84 +77,140 @@
 		}
 	}
 
+	// Cached attribution — sessionStorage/referrer don't change within a page load.
+	var attributionCache = null;
+
 	/**
 	 * Return a flat attribution object ready to merge into any event.
+	 * Source/medium/campaign are computed once and cached; page_location and
+	 * page_title are refreshed per call to stay accurate for SPA navigations.
 	 *
 	 * @returns {Object}
 	 */
 	function getAttribution() {
-		var attribution = {};
+		if ( ! attributionCache ) {
+			attributionCache = {};
 
-		try {
-			var raw = sessionStorage.getItem( 'ppt_attribution' );
-			if ( raw ) {
-				var stored = JSON.parse( raw );
-				if ( stored.utm_source )   attribution.traffic_source   = stored.utm_source;
-				if ( stored.utm_medium )   attribution.traffic_medium   = stored.utm_medium;
-				if ( stored.utm_campaign ) attribution.traffic_campaign = stored.utm_campaign;
-				if ( stored.utm_term )     attribution.traffic_keyword  = stored.utm_term;
-				if ( stored.utm_content )  attribution.traffic_content  = stored.utm_content;
-				if ( stored.gclid )        attribution.gclid            = stored.gclid;
-				if ( stored.fbclid )       attribution.fbclid           = stored.fbclid;
-			}
-		} catch ( e ) { /* ignore */ }
-
-		// Referrer fallback when no UTM params exist.
-		if ( ! attribution.traffic_source && document.referrer ) {
 			try {
-				var ref    = new URL( document.referrer );
-				var domain = ref.hostname.replace( /^www\./, '' );
-				if ( domain !== cfg.siteDomain ) {
-					attribution.traffic_source = domain;
-					attribution.traffic_medium = 'referral';
+				var raw = sessionStorage.getItem( 'ppt_attribution' );
+				if ( raw ) {
+					var stored = JSON.parse( raw );
+					if ( stored.utm_source )   attributionCache.traffic_source   = stored.utm_source;
+					if ( stored.utm_medium )   attributionCache.traffic_medium   = stored.utm_medium;
+					if ( stored.utm_campaign ) attributionCache.traffic_campaign = stored.utm_campaign;
+					if ( stored.utm_term )     attributionCache.traffic_keyword  = stored.utm_term;
+					if ( stored.utm_content )  attributionCache.traffic_content  = stored.utm_content;
+					if ( stored.gclid )        attributionCache.gclid            = stored.gclid;
+					if ( stored.fbclid )       attributionCache.fbclid           = stored.fbclid;
 				}
-			} catch ( e ) { /* invalid referrer URL */ }
+			} catch ( e ) { /* ignore */ }
+
+			// Referrer fallback when no UTM params exist.
+			if ( ! attributionCache.traffic_source && document.referrer ) {
+				try {
+					var ref    = new URL( document.referrer );
+					var domain = ref.hostname.replace( /^www\./, '' );
+					if ( domain !== cfg.siteDomain ) {
+						attributionCache.traffic_source = domain;
+						attributionCache.traffic_medium = 'referral';
+					}
+				} catch ( e ) { /* invalid referrer URL */ }
+			}
 		}
 
+		// Clone the cached base and add per-event page context.
+		var attribution = Object.assign( {}, attributionCache );
 		attribution.page_location = window.location.href;
 		attribution.page_title    = document.title;
 
 		return attribution;
 	}
 
-	/* ─── CTA Button Tracking ───────────────────────────────────────────────── */
+	/* ─── Unified Click Tracking ────────────────────────────────────────────── */
 
-	function initCTATracking() {
-		if ( ! cfg.ctaClasses || ! cfg.ctaClasses.length ) {
+	/**
+	 * A single delegated click listener handles CTA, outbound, phone, and email
+	 * tracking. One listener on the document is cheaper than four.
+	 */
+	function initClickTracking() {
+		// Build the CTA selector map once: cssClass → { label, tier }
+		var classMap     = {};
+		var hasCtaClasses = false;
+		if ( cfg.ctaClasses && cfg.ctaClasses.length ) {
+			cfg.ctaClasses.forEach( function ( cta ) {
+				if ( cta.cssClass ) {
+					classMap[ cta.cssClass ] = { label: cta.label, tier: cta.tier };
+					hasCtaClasses = true;
+				}
+			} );
+		}
+
+		var trackCta      = hasCtaClasses;
+		var trackOutbound = !! cfg.trackOutbound;
+		var trackPhone    = !! cfg.trackPhone;
+		var trackEmail    = !! cfg.trackEmail;
+
+		// Nothing to do — skip registering the listener entirely.
+		if ( ! trackCta && ! trackOutbound && ! trackPhone && ! trackEmail ) {
 			return;
 		}
 
-		// Build a selector map: cssClass → { label, tier }
-		var classMap = {};
-		cfg.ctaClasses.forEach( function ( cta ) {
-			if ( cta.cssClass ) {
-				classMap[ cta.cssClass ] = { label: cta.label, tier: cta.tier };
-			}
-		} );
-
-		// Single delegated listener on the document for performance.
 		document.addEventListener( 'click', function ( e ) {
-			var target = e.target;
-
-			// Walk up to 3 levels to catch clicks on child elements (e.g. <span> inside <button>).
-			for ( var i = 0; i < 3; i++ ) {
-				if ( ! target || target === document ) break;
-				var classList = ( target.className || '' ).toString().split( /\s+/ );
-
-				for ( var c = 0; c < classList.length; c++ ) {
-					var cls = classList[ c ];
-					if ( classMap[ cls ] ) {
-						sendEvent( 'cta_click', {
-							cta_tier      : classMap[ cls ].tier,
-							cta_label     : classMap[ cls ].label,
-							button_text   : ( target.innerText || target.value || '' ).trim().substring( 0, 100 ),
-							button_class  : ( target.className || '' ).toString().trim(),
-							link_url      : target.href || '',
-						} );
-						return; // Only fire once per click.
+			// ── CTA: walk up to 3 levels to catch clicks on child elements. ──
+			if ( trackCta ) {
+				var node = e.target;
+				for ( var i = 0; i < 3; i++ ) {
+					if ( ! node || node === document ) break;
+					var classList = ( node.className || '' ).toString().split( /\s+/ );
+					for ( var c = 0; c < classList.length; c++ ) {
+						if ( classMap[ classList[ c ] ] ) {
+							sendEvent( 'cta_click', {
+								cta_tier     : classMap[ classList[ c ] ].tier,
+								cta_label    : classMap[ classList[ c ] ].label,
+								button_text  : ( node.innerText || node.value || '' ).trim().substring( 0, 100 ),
+								button_class : ( node.className || '' ).toString().trim(),
+								link_url     : node.href || '',
+							} );
+							return; // Only fire once per click.
+						}
 					}
+					node = node.parentElement;
 				}
-				target = target.parentElement;
+			}
+
+			// ── Anchor-based handlers share one closest() lookup. ──
+			var link = e.target.closest( 'a' );
+			if ( ! link ) return;
+
+			// Phone (tel:)
+			if ( trackPhone && link.getAttribute( 'href' ) && link.getAttribute( 'href' ).indexOf( 'tel:' ) === 0 ) {
+				sendEvent( 'phone_click', {
+					phone_number: link.href.replace( 'tel:', '' ),
+					link_text   : ( link.innerText || '' ).trim(),
+				} );
+				return;
+			}
+
+			// Email (mailto:)
+			if ( trackEmail && link.getAttribute( 'href' ) && link.getAttribute( 'href' ).indexOf( 'mailto:' ) === 0 ) {
+				// Do not send the email address — it is PII prohibited by Google's measurement terms.
+				sendEvent( 'email_click', {
+					link_text: ( link.innerText || '' ).trim(),
+				} );
+				return;
+			}
+
+			// Outbound
+			if ( trackOutbound && link.href ) {
+				try {
+					var url = new URL( link.href );
+					if ( url.hostname && url.hostname !== cfg.siteDomain && url.hostname !== ( 'www.' + cfg.siteDomain ) ) {
+						sendEvent( 'outbound_click', {
+							link_url  : link.href,
+							link_text : ( link.innerText || '' ).trim().substring( 0, 100 ),
+						} );
+					}
+				} catch ( err ) { /* invalid URL */ }
 			}
 		} );
 	}
@@ -185,6 +241,15 @@
 		// ── Auto-detect: try all hooks, first success wins.
 		var isAuto = plugin === 'auto';
 
+		// In auto mode every handler (incl. generic) is bound. Record when a
+		// plugin-specific handler fires so the generic submit fallback can skip
+		// the same submission and avoid double-counting.
+		var lastSpecificFire = 0;
+		function fireSpecific( payload ) {
+			lastSpecificFire = Date.now();
+			sendEvent( 'form_submit', payload );
+		}
+
 		/* WS Form ─────────────────────────────────────────────────────────────
 		   Fires a custom JS event 'wsf-submit' on the form element. */
 		if ( isAuto || plugin === 'wsform' ) {
@@ -192,7 +257,7 @@
 				var form  = e.target;
 				var id    = form ? form.getAttribute( 'data-id' ) : '';
 				var title = form ? form.getAttribute( 'data-label' ) : '';
-				sendEvent( 'form_submit', buildFormPayload( id, title, 'ws_form' ) );
+				fireSpecific( buildFormPayload( id, title, 'ws_form' ) );
 			} );
 		}
 
@@ -206,7 +271,7 @@
 				gfFired[ formId ] = true;
 				// Reset after a short delay so re-submissions on the same page are tracked.
 				setTimeout( function () { delete gfFired[ formId ]; }, 2000 );
-				sendEvent( 'form_submit', buildFormPayload( formId, 'Gravity Form ' + formId, 'gravity_forms' ) );
+				fireSpecific( buildFormPayload( formId, 'Gravity Form ' + formId, 'gravity_forms' ) );
 			}
 
 			document.addEventListener( 'gform_confirmation_loaded', function ( e ) {
@@ -227,7 +292,7 @@
 			document.addEventListener( 'wpformsAjaxSubmitSuccess', function ( e ) {
 				var form  = e.target;
 				var id    = form ? form.getAttribute( 'data-formid' ) : '';
-				sendEvent( 'form_submit', buildFormPayload( id, 'WPForms ' + id, 'wpforms' ) );
+				fireSpecific( buildFormPayload( id, 'WPForms ' + id, 'wpforms' ) );
 			} );
 		}
 
@@ -237,7 +302,7 @@
 			document.addEventListener( 'wpcf7mailsent', function ( e ) {
 				var detail = e.detail || {};
 				var id     = detail.contactFormId || detail.id || '';
-				sendEvent( 'form_submit', buildFormPayload( id, 'CF7 Form ' + id, 'cf7' ) );
+				fireSpecific( buildFormPayload( id, 'CF7 Form ' + id, 'cf7' ) );
 			} );
 		}
 
@@ -247,7 +312,7 @@
 			document.addEventListener( 'fluentform_submission_success', function ( e ) {
 				var detail = e.detail || {};
 				var id     = detail.response && detail.response.data ? detail.response.data.insert_id : '';
-				sendEvent( 'form_submit', buildFormPayload( id, 'Fluent Form', 'fluent_forms' ) );
+				fireSpecific( buildFormPayload( id, 'Fluent Form', 'fluent_forms' ) );
 			} );
 		}
 
@@ -257,7 +322,7 @@
 			document.addEventListener( 'frmFormComplete', function ( e ) {
 				var detail = e.detail || {};
 				var id     = detail.formId || '';
-				sendEvent( 'form_submit', buildFormPayload( id, 'Formidable Form ' + id, 'formidable' ) );
+				fireSpecific( buildFormPayload( id, 'Formidable Form ' + id, 'formidable' ) );
 			} );
 		}
 
@@ -266,7 +331,7 @@
 		if ( ( isAuto || plugin === 'ninja' ) && typeof window.nfRadio !== 'undefined' ) {
 			window.nfRadio.channel( 'forms' ).on( 'submit:response', function ( response ) {
 				var id = response && response.data ? response.data.form_id : '';
-				sendEvent( 'form_submit', buildFormPayload( id, 'Ninja Form ' + id, 'ninja_forms' ) );
+				fireSpecific( buildFormPayload( id, 'Ninja Form ' + id, 'ninja_forms' ) );
 			} );
 		}
 
@@ -275,6 +340,11 @@
 		   Useful for custom HTML forms or unsupported plugins. */
 		if ( isAuto || plugin === 'generic' ) {
 			document.addEventListener( 'submit', function ( e ) {
+				// In auto mode, skip if a plugin-specific handler just fired for
+				// this submission to avoid double-counting.
+				if ( isAuto && ( Date.now() - lastSpecificFire ) < 1500 ) {
+					return;
+				}
 				var form   = e.target;
 				var id     = form.id || form.getAttribute( 'name' ) || 'unknown';
 				var title  = form.getAttribute( 'aria-label' ) || id;
@@ -288,11 +358,12 @@
 	function initScrollTracking() {
 		if ( ! cfg.trackScroll ) return;
 
-		var milestones = [ 25, 50, 75, 100 ];
-		var fired      = {};
-		var ticking    = false;
+		var milestones   = [ 25, 50, 75, 100 ];
+		var fired        = {};
+		var firedCount   = 0;
+		var ticking      = false;
 
-		window.addEventListener( 'scroll', function () {
+		function onScroll() {
 			if ( ticking ) return;
 			ticking = true;
 			requestAnimationFrame( function () {
@@ -303,65 +374,20 @@
 				milestones.forEach( function ( m ) {
 					if ( pct >= m && ! fired[ m ] ) {
 						fired[ m ] = true;
+						firedCount++;
 						sendEvent( 'scroll_depth', { percent_scrolled: m } );
 					}
 				} );
+
+				// All milestones reached — stop listening.
+				if ( firedCount >= milestones.length ) {
+					window.removeEventListener( 'scroll', onScroll );
+				}
 				ticking = false;
 			} );
-		}, { passive: true } );
-	}
+		}
 
-	/* ─── Outbound Links ────────────────────────────────────────────────────── */
-
-	function initOutboundTracking() {
-		if ( ! cfg.trackOutbound ) return;
-
-		document.addEventListener( 'click', function ( e ) {
-			var target = e.target.closest( 'a' );
-			if ( ! target || ! target.href ) return;
-
-			try {
-				var url = new URL( target.href );
-				if ( url.hostname && url.hostname !== cfg.siteDomain && url.hostname !== ( 'www.' + cfg.siteDomain ) ) {
-					sendEvent( 'outbound_click', {
-						link_url  : target.href,
-						link_text : ( target.innerText || '' ).trim().substring( 0, 100 ),
-					} );
-				}
-			} catch ( err ) { /* invalid URL */ }
-		} );
-	}
-
-	/* ─── Phone Clicks ──────────────────────────────────────────────────────── */
-
-	function initPhoneTracking() {
-		if ( ! cfg.trackPhone ) return;
-
-		document.addEventListener( 'click', function ( e ) {
-			var target = e.target.closest( 'a[href^="tel:"]' );
-			if ( ! target ) return;
-
-			sendEvent( 'phone_click', {
-				phone_number: target.href.replace( 'tel:', '' ),
-				link_text   : ( target.innerText || '' ).trim(),
-			} );
-		} );
-	}
-
-	/* ─── Email Clicks ──────────────────────────────────────────────────────── */
-
-	function initEmailTracking() {
-		if ( ! cfg.trackEmail ) return;
-
-		document.addEventListener( 'click', function ( e ) {
-			var target = e.target.closest( 'a[href^="mailto:"]' );
-			if ( ! target ) return;
-
-			// Do not send the email address — it is PII prohibited by Google's measurement terms.
-			sendEvent( 'email_click', {
-				link_text: ( target.innerText || '' ).trim(),
-			} );
-		} );
+		window.addEventListener( 'scroll', onScroll, { passive: true } );
 	}
 
 	/* ─── Init ──────────────────────────────────────────────────────────────── */
@@ -370,22 +396,16 @@
 	initAttribution();
 
 	// Wire up all trackers once the DOM is ready.
-	if ( document.readyState === 'loading' ) {
-		document.addEventListener( 'DOMContentLoaded', function () {
-			initCTATracking();
-			initFormTracking();
-			initScrollTracking();
-			initOutboundTracking();
-			initPhoneTracking();
-			initEmailTracking();
-		} );
-	} else {
-		initCTATracking();
+	function initAll() {
+		initClickTracking();
 		initFormTracking();
 		initScrollTracking();
-		initOutboundTracking();
-		initPhoneTracking();
-		initEmailTracking();
+	}
+
+	if ( document.readyState === 'loading' ) {
+		document.addEventListener( 'DOMContentLoaded', initAll );
+	} else {
+		initAll();
 	}
 
 } )();
