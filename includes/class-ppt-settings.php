@@ -123,6 +123,12 @@ class PPT_Settings {
 		add_settings_field( 'track_outbound', __( 'Outbound Link Clicks', 'progressio-performance-tracker' ), array( $this, 'field_track_outbound' ), 'ppt_settings_page', 'ppt_section_extra' );
 		add_settings_field( 'track_phone', __( 'Phone Number Clicks', 'progressio-performance-tracker' ), array( $this, 'field_track_phone' ), 'ppt_settings_page', 'ppt_section_extra' );
 		add_settings_field( 'track_email', __( 'Email Address Clicks', 'progressio-performance-tracker' ), array( $this, 'field_track_email' ), 'ppt_settings_page', 'ppt_section_extra' );
+
+		// ── Section: Progressio Leads ─────────────────────────────────────────
+		add_settings_section( 'ppt_section_leads', __( 'Progressio Leads Capture', 'progressio-performance-tracker' ), array( $this, 'section_leads_cb' ), 'ppt_settings_page' );
+
+		add_settings_field( 'leads_api_key', __( 'Leads API Key', 'progressio-performance-tracker' ), array( $this, 'field_leads_api_key' ), 'ppt_settings_page', 'ppt_section_leads' );
+		add_settings_field( 'leads_endpoint', __( 'Leads Endpoint URL', 'progressio-performance-tracker' ), array( $this, 'field_leads_endpoint' ), 'ppt_settings_page', 'ppt_section_leads' );
 	}
 
 	// ── Section callbacks ────────────────────────────────────────────────────
@@ -141,6 +147,10 @@ class PPT_Settings {
 
 	public function section_extra_cb(): void {
 		echo '<p>' . esc_html__( 'Optional micro-conversion and engagement signals that add depth to your GA4 reports.', 'progressio-performance-tracker' ) . '</p>';
+	}
+
+	public function section_leads_cb(): void {
+		echo '<p>' . esc_html__( 'Send visitor contact data from form submissions to the Progressio dashboard Leads Inbox. Copy the API key from the client record in the Progressio dashboard and paste it here.', 'progressio-performance-tracker' ) . '</p>';
 	}
 
 	// ── Field callbacks ──────────────────────────────────────────────────────
@@ -170,11 +180,11 @@ class PPT_Settings {
 		echo '<div style="display:flex;gap:12px;align-items:center;">';
 		echo '<div>';
 		echo '<label style="display:block;font-weight:600;margin-bottom:4px;">' . esc_html__( 'CSS Class', 'progressio-performance-tracker' ) . '</label>';
-		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . '[cta_' . $tier . '_class]" value="' . $class . '" placeholder="e.g. btn--action" class="regular-text" />';
+		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . "[cta_{$tier}_class]\" value=\"{$class}\" placeholder=\"e.g. btn--action\" class=\"regular-text\" />';
 		echo '</div>';
 		echo '<div>';
 		echo '<label style="display:block;font-weight:600;margin-bottom:4px;">' . esc_html__( 'Event Label', 'progressio-performance-tracker' ) . '</label>';
-		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . '[cta_' . $tier . '_label]" value="' . $label . '" placeholder="e.g. Primary CTA" class="regular-text" />';
+		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . "[cta_{$tier}_label]\" value=\"{$label}\" placeholder=\"e.g. Primary CTA\" class=\"regular-text\" />';
 		echo '</div>';
 		echo '</div>';
 		echo '<p class="description">' . esc_html__( 'The label appears in GA4 event parameters for easy filtering.', 'progressio-performance-tracker' ) . '</p>';
@@ -227,6 +237,18 @@ class PPT_Settings {
 		echo '<label><input type="checkbox" name="' . esc_attr( PPT_OPTION_KEY ) . '[track_email]" value="1" ' . $checked . ' /> ' . esc_html__( 'Track mailto: link clicks', 'progressio-performance-tracker' ) . '</label>';
 	}
 
+	public function field_leads_api_key(): void {
+		$val = esc_attr( $this->get( 'leads_api_key' ) );
+		echo '<input type="text" name="' . esc_attr( PPT_OPTION_KEY ) . '[leads_api_key]" value="' . $val . '" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" class="regular-text" />';
+		echo '<p class="description">' . esc_html__( 'Copy from the client record in the Progressio dashboard → Website → Leads Capture API Key.', 'progressio-performance-tracker' ) . '</p>';
+	}
+
+	public function field_leads_endpoint(): void {
+		$val = esc_attr( $this->get( 'leads_endpoint', 'https://dash.progressiodev.com/api/leads' ) );
+		echo '<input type="url" name="' . esc_attr( PPT_OPTION_KEY ) . '[leads_endpoint]" value="' . $val . '" class="regular-text" />';
+		echo '<p class="description">' . esc_html__( 'The Progressio dashboard URL that receives leads. Leave as-is unless directed otherwise.', 'progressio-performance-tracker' ) . '</p>';
+	}
+
 	// ── Sanitization ─────────────────────────────────────────────────────────
 
 	/**
@@ -235,8 +257,7 @@ class PPT_Settings {
 	 * @param array $input Raw POST data.
 	 * @return array Sanitized options.
 	 */
-	public function sanitize_options( $input ): array {
-		$input = (array) $input;
+	public function sanitize_options( array $input ): array {
 		$clean = array();
 
 		$clean['measurement_id']      = sanitize_text_field( $input['measurement_id'] ?? '' );
@@ -257,6 +278,8 @@ class PPT_Settings {
 		$clean['track_outbound']      = isset( $input['track_outbound'] ) ? '1' : '0';
 		$clean['track_phone']         = isset( $input['track_phone'] ) ? '1' : '0';
 		$clean['track_email']         = isset( $input['track_email'] ) ? '1' : '0';
+		$clean['leads_api_key']       = sanitize_text_field( $input['leads_api_key'] ?? '' );
+		$clean['leads_endpoint']      = esc_url_raw( $input['leads_endpoint'] ?? 'https://dash.progressiodev.com/api/leads' );
 
 		return $clean;
 	}

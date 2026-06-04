@@ -61,14 +61,15 @@ class PPT_Tracker {
 			return;
 		}
 
+		$mid = esc_js( $mid );
 		?>
 		<!-- Progressio Performance Tracker: gtag.js -->
-		<script async src="https://www.googletagmanager.com/gtag/js?id=<?php echo esc_attr( rawurlencode( $mid ) ); ?>"></script>
+		<script async src="https://www.googletagmanager.com/gtag/js?id=<?php echo esc_attr( $mid ); ?>"></script>
 		<script>
 			window.dataLayer = window.dataLayer || [];
 			function gtag(){dataLayer.push(arguments);}
 			gtag('js', new Date());
-			gtag('config', '<?php echo esc_js( $mid ); ?>'<?php echo $this->settings->get( 'debug_mode' ) === '1' ? ", { 'debug_mode': true }" : ''; ?>);
+			gtag('config', '<?php echo $mid; ?>'<?php echo $this->settings->get( 'debug_mode' ) === '1' ? ", { 'debug_mode': true }" : ''; ?>);
 		</script>
 		<?php
 	}
@@ -123,6 +124,8 @@ class PPT_Tracker {
 			'trackPhone'    => $this->settings->get( 'track_phone', '1' ) === '1',
 			'trackEmail'    => $this->settings->get( 'track_email', '1' ) === '1',
 			'siteDomain'    => wp_parse_url( home_url(), PHP_URL_HOST ),
+			'leadsApiKey'   => $this->settings->get( 'leads_api_key', '' ),
+			'leadsEndpoint' => $this->settings->get( 'leads_endpoint', 'https://dash.progressiodev.com/api/leads' ),
 		);
 
 		wp_localize_script( 'ppt-tracker', 'pptConfig', $config );
