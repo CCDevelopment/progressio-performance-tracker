@@ -3,7 +3,7 @@
  * Plugin Name:       Progressio Performance Tracker
  * Plugin URI:        https://progressiodev.com
  * Description:       Tracks button clicks, form submissions, and traffic attribution data, sending custom events to GA4. Connects traffic source to conversion action for client reporting.
- * Version:           1.0.2
+ * Version:           1.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Progressio Development
@@ -29,6 +29,13 @@ define( 'PPT_OPTION_KEY', 'ppt_settings' );
 // Load core includes.
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-settings.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-tracker.php';
+require_once PPT_PLUGIN_DIR . 'vendor/plugin-update-checker/plugin-update-checker.php';
+$ppt_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+    'https://github.com/CCDevelopment/progressio-performance-tracker/',
+    __FILE__,
+    'progressio-performance-tracker'
+);
+$ppt_update_checker->setBranch( 'master' );
 
 // Plugin update checker (GitHub Releases).
 if ( file_exists( PPT_PLUGIN_DIR . 'vendor/plugin-update-checker/load-v5p7.php' ) ) {
