@@ -354,14 +354,31 @@
 		var isAuto = plugin === 'auto';
 
 		/* WS Form ─────────────────────────────────────────────────────────────
-		   Fires a custom JS event 'wsf-submit' on the form element. */
+		   WS Form fires 'wsf-submit' as a jQuery event on the form element.
+		   Native addEventListener won't catch jQuery events, so we use both.
+		   Contact data is read from preSubmitCapture because the form is
+		   cleared before the post-submit event fires. */
 		if ( isAuto || plugin === 'wsform' ) {
-			document.addEventListener( 'wsf-submit', function ( e ) {
-				var form  = e.target;
+			function handleWsfSubmit( form ) {
 				var id    = form ? form.getAttribute( 'data-id' ) : '';
 				var title = form ? form.getAttribute( 'data-label' ) : '';
+				var key   = form ? ( form.id || form.getAttribute( 'name' ) || '_form' ) : '_form';
+				var contact = preSubmitCapture[ key ] || extractContactFromForm( form );
 				sendEvent( 'form_submit', buildFormPayload( id, title, 'ws_form' ) );
-				sendLead( extractContactFromForm( form ), { formId: id, formTitle: title || 'WS Form' } );
+				sendLead( contact, { formId: id, formTitle: title || 'WS Form' } );
+				delete preSubmitCapture[ key ];
+			}
+
+			// jQuery listener — catches jQuery-triggered wsf-submit events.
+			if ( typeof jQuery !== 'undefined' ) {
+				jQuery( document ).on( 'wsf-submit', function ( e ) {
+					handleWsfSubmit( e.target );
+				} );
+			}
+
+			// Native listener — catches CustomEvent-dispatched wsf-submit events.
+			document.addEventListener( 'wsf-submit', function ( e ) {
+				handleWsfSubmit( e.target );
 			} );
 		}
 
