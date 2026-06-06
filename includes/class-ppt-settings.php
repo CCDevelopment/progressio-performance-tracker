@@ -244,7 +244,7 @@ class PPT_Settings {
 	}
 
 	public function field_leads_endpoint(): void {
-		$val = esc_attr( $this->get( 'leads_endpoint', 'https://dash.progressiodev.com/api/leads' ) );
+		$val = esc_attr( $this->get( 'leads_endpoint', 'https://dashboard.progressiodev.com/api/leads' ) );
 		echo '<input type="url" name="' . esc_attr( PPT_OPTION_KEY ) . '[leads_endpoint]" value="' . $val . '" class="regular-text" />';
 		echo '<p class="description">' . esc_html__( 'The Progressio dashboard URL that receives leads. Leave as-is unless directed otherwise.', 'progressio-performance-tracker' ) . '</p>';
 	}
@@ -279,7 +279,7 @@ class PPT_Settings {
 		$clean['track_phone']         = isset( $input['track_phone'] ) ? '1' : '0';
 		$clean['track_email']         = isset( $input['track_email'] ) ? '1' : '0';
 		$clean['leads_api_key']       = sanitize_text_field( $input['leads_api_key'] ?? '' );
-		$clean['leads_endpoint']      = esc_url_raw( $input['leads_endpoint'] ?? 'https://dash.progressiodev.com/api/leads' );
+		$clean['leads_endpoint']      = esc_url_raw( $input['leads_endpoint'] ?? 'https://dashboard.progressiodev.com/api/leads' );
 
 		return $clean;
 	}

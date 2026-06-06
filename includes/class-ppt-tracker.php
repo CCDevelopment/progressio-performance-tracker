@@ -121,7 +121,7 @@ class PPT_Tracker {
 
 	private function hook_leads(): void {
 		$api_key  = $this->settings->get( 'leads_api_key', '' );
-		$endpoint = $this->settings->get( 'leads_endpoint', 'https://dash.progressiodev.com/api/leads' );
+		$endpoint = $this->settings->get( 'leads_endpoint', 'https://dashboard.progressiodev.com/api/leads' );
 
 		if ( ! $api_key || ! $endpoint ) {
 			return;
