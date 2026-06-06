@@ -131,35 +131,67 @@ class PPT_Tracker {
 		$auto   = ( $plugin === 'auto' );
 
 		// ── WS Form ───────────────────────────────────────────────────────────
-		// WS Form submits via /wp-json/ws-form/v1/submit (REST API).
-		// We hook rest_post_dispatch so we get both the request params and the
-		// confirmed-success response in one place.
+		// wsf_submit_post_complete fires server-side after a form has been
+		// successfully posted — regardless of transport (AJAX or otherwise), so
+		// it works where the old REST-dispatch interception did not. The handler
+		// receives the WS Form submit object; field values live in $submit->meta
+		// keyed by "field_{id}", and the form definition (for labels/types) is on
+		// $submit->form_object.
 		if ( $auto || $plugin === 'wsform' ) {
-			add_filter(
-				'rest_post_dispatch',
-				function ( $response, $server, $request ) use ( $api_key, $endpoint ) {
-					if ( false === strpos( $request->get_route(), 'ws-form/v1/submit' ) ) {
-						return $response;
-					}
-					if ( 'POST' !== $request->get_method() ) {
-						return $response;
+			add_action(
+				'wsf_submit_post_complete',
+				function ( $submit ) use ( $api_key, $endpoint ) {
+					if ( ! is_object( $submit ) || empty( $submit->meta ) || ! is_array( $submit->meta ) ) {
+						return;
 					}
 
-					$data = $response->get_data();
-					// Only fire on confirmed success (error === false in WS Form response).
-					if ( ! is_array( $data ) || ! empty( $data['error'] ) ) {
-						return $response;
+					// Build an id → { label, type } map from the form definition.
+					$field_map = $this->wsform_field_map( $submit->form_object ?? null );
+
+					$flat = array();
+					foreach ( $submit->meta as $meta_key => $meta ) {
+						$value = is_array( $meta ) ? ( $meta['value'] ?? '' ) : $meta;
+						if ( is_array( $value ) ) {
+							$value = implode( ' ', array_map( 'strval', $value ) );
+						}
+						$value = strval( $value );
+						if ( '' === $value ) {
+							continue;
+						}
+
+						// meta keys look like "field_123"; map back to the field's
+						// label/type so extract_contact's heuristics can match.
+						$field_id = ( 0 === strpos( (string) $meta_key, 'field_' ) )
+							? substr( (string) $meta_key, 6 )
+							: (string) $meta_key;
+
+						$info  = $field_map[ $field_id ] ?? array();
+						$type  = strtolower( (string) ( $info['type'] ?? '' ) );
+						$label = strtolower( (string) ( $info['label'] ?? '' ) );
+
+						// Field-type hints make matching reliable even when the
+						// label is generic (e.g. a bare "Email" placeholder).
+						if ( 'email' === $type ) {
+							$label = $label ? $label . ' email' : 'email';
+						} elseif ( in_array( $type, array( 'tel', 'phone' ), true ) ) {
+							$label = $label ? $label . ' phone' : 'phone';
+						}
+
+						// Fall back to the meta key so values are never dropped.
+						$key = $label ?: strtolower( (string) $meta_key );
+						$flat[ $key ] = $value;
 					}
 
-					$params  = $request->get_json_params() ?: $request->get_body_params() ?: array();
-					$contact = $this->extract_contact( $params );
-					$form_id = strval( $params['id'] ?? '' );
+					$contact = $this->extract_contact( $flat );
+					$form_id = strval( $submit->form_id ?? ( $submit->form_object->id ?? '' ) );
+					$title   = isset( $submit->form_object->label ) && $submit->form_object->label
+						? strval( $submit->form_object->label )
+						: 'WS Form ' . $form_id;
 
-					$this->send_lead( $api_key, $endpoint, $contact, $form_id, 'WS Form ' . $form_id );
-					return $response;
+					$this->send_lead( $api_key, $endpoint, $contact, $form_id, $title );
 				},
-				10,
-				3
+				20,
+				1
 			);
 		}
 
@@ -313,6 +345,41 @@ class PPT_Tracker {
 				1
 			);
 		}
+	}
+
+	/**
+	 * Build a field id → { label, type } map from a WS Form form object.
+	 *
+	 * WS Form nests fields under groups → sections → fields. We walk that
+	 * structure defensively (arrays or objects, any missing level) so a single
+	 * unexpected shape can never fatal the submission handler.
+	 */
+	private function wsform_field_map( $form_object ): array {
+		$map = array();
+		if ( empty( $form_object ) ) {
+			return $map;
+		}
+
+		$groups = $form_object->groups ?? array();
+		foreach ( (array) $groups as $group ) {
+			$sections = ( is_object( $group ) ? ( $group->sections ?? array() ) : ( $group['sections'] ?? array() ) );
+			foreach ( (array) $sections as $section ) {
+				$fields = ( is_object( $section ) ? ( $section->fields ?? array() ) : ( $section['fields'] ?? array() ) );
+				foreach ( (array) $fields as $field ) {
+					$id    = is_object( $field ) ? ( $field->id ?? null ) : ( $field['id'] ?? null );
+					$label = is_object( $field ) ? ( $field->label ?? '' ) : ( $field['label'] ?? '' );
+					$type  = is_object( $field ) ? ( $field->type ?? '' ) : ( $field['type'] ?? '' );
+					if ( null !== $id ) {
+						$map[ (string) $id ] = array(
+							'label' => (string) $label,
+							'type'  => (string) $type,
+						);
+					}
+				}
+			}
+		}
+
+		return $map;
 	}
 
 	/**
