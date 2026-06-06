@@ -3,7 +3,7 @@
  * Plugin Name:       Progressio Performance Tracker
  * Plugin URI:        https://progressiodev.com
  * Description:       Tracks button clicks, form submissions, and traffic attribution data, sending custom events to GA4. Connects traffic source to conversion action for client reporting.
- * Version:           1.1.0
+ * Version:           1.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Progressio Development
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants.
-define( 'PPT_VERSION', '1.1.0' );
+define( 'PPT_VERSION', '1.2.0' );
 define( 'PPT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PPT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'PPT_PLUGIN_FILE', __FILE__ );
@@ -31,13 +31,20 @@ require_once PPT_PLUGIN_DIR . 'includes/class-ppt-settings.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-tracker.php';
 
 // Auto-updates via GitHub releases.
-require_once PPT_PLUGIN_DIR . 'includes/plugin-update-checker/plugin-update-checker.php';
-$ppt_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-	'https://github.com/CCDevelopment/progressio-performance-tracker/',
-	__FILE__,
-	'progressio-performance-tracker'
-);
-$ppt_update_checker->setBranch( 'master' );
+$ppt_puc = PPT_PLUGIN_DIR . 'includes/plugin-update-checker/plugin-update-checker.php';
+if ( file_exists( $ppt_puc ) ) {
+	try {
+		require_once $ppt_puc;
+		$ppt_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+			'https://github.com/CCDevelopment/progressio-performance-tracker/',
+			__FILE__,
+			'progressio-performance-tracker'
+		);
+		$ppt_update_checker->setBranch( 'master' );
+	} catch ( \Throwable $e ) {
+		// Update checker failed — plugin continues to work normally.
+	}
+}
 
 /**
  * Initialise the plugin.
