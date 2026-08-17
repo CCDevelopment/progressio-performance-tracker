@@ -326,6 +326,73 @@ class PPT_Tracker {
 			);
 		}
 
+		// ── Elementor Pro Forms ───────────────────────────────────────────────
+		// elementor_pro/forms/new_record fires after validation passes, so a
+		// submission blocked by reCAPTCHA or a required-field error never
+		// reaches us. $record->get( 'fields' ) is keyed by field id; each entry
+		// carries the field's title (label), type, and value.
+		if ( $auto || $plugin === 'elementor' ) {
+			add_action(
+				'elementor_pro/forms/new_record',
+				function ( $record, $handler ) use ( $api_key, $endpoint ) {
+					if ( ! is_object( $record ) || ! method_exists( $record, 'get' ) ) {
+						return;
+					}
+
+					$fields = $record->get( 'fields' );
+					if ( ! is_array( $fields ) ) {
+						return;
+					}
+
+					$flat = array();
+					foreach ( $fields as $field_id => $field ) {
+						$value = is_array( $field ) ? ( $field['value'] ?? '' ) : $field;
+						if ( is_array( $value ) ) {
+							$value = implode( ' ', array_map( 'strval', $value ) );
+						}
+						$value = trim( strval( $value ) );
+						if ( '' === $value ) {
+							continue;
+						}
+
+						$type  = strtolower( strval( is_array( $field ) ? ( $field['type'] ?? '' ) : '' ) );
+						$label = strtolower( strval( is_array( $field ) ? ( $field['title'] ?? '' ) : '' ) );
+
+						// Elementor forms are very often built with placeholders and
+						// no labels at all, which would leave extract_contact nothing
+						// to match on — so fold the field type into the key the same
+						// way the WS Form handler does.
+						if ( 'email' === $type ) {
+							$label = $label ? $label . ' email' : 'email';
+						} elseif ( in_array( $type, array( 'tel', 'phone' ), true ) ) {
+							$label = $label ? $label . ' phone' : 'phone';
+						}
+
+						// Fall back to the field id — Elementor defaults these to
+						// "name" / "email" / "message", which the heuristics can use.
+						$key          = $label ?: strtolower( strval( $field_id ) );
+						$flat[ $key ] = $value;
+					}
+
+					$settings = $record->get( 'form_settings' );
+					$settings = is_array( $settings ) ? $settings : array();
+					$title    = strval( $settings['form_name'] ?? '' );
+					$form_id  = strval( $settings['id'] ?? ( $settings['form_id'] ?? '' ) );
+
+					$contact = $this->extract_contact( $flat );
+					$this->send_lead(
+						$api_key,
+						$endpoint,
+						$contact,
+						$form_id ?: $title,
+						$title ?: 'Elementor Form'
+					);
+				},
+				10,
+				2
+			);
+		}
+
 		// ── Ninja Forms ───────────────────────────────────────────────────────
 		// ninja_forms_after_submission passes the complete form data array.
 		if ( $auto || $plugin === 'ninja' ) {

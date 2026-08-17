@@ -206,6 +206,7 @@ class PPT_Settings {
 			'fluentforms'   => 'Fluent Forms',
 			'formidable'    => 'Formidable Forms',
 			'ninja'         => 'Ninja Forms',
+			'elementor'     => 'Elementor Pro Forms',
 			'generic'       => __( 'Generic (HTML form submit fallback)', 'progressio-performance-tracker' ),
 		);
 		echo '<select name="' . esc_attr( PPT_OPTION_KEY ) . '[form_plugin]">';
@@ -271,7 +272,7 @@ class PPT_Settings {
 		$clean['cta_tertiary_class']  = sanitize_text_field( $input['cta_tertiary_class'] ?? '' );
 		$clean['cta_tertiary_label']  = sanitize_text_field( $input['cta_tertiary_label'] ?? '' );
 		$clean['track_forms']         = isset( $input['track_forms'] ) ? '1' : '0';
-		$allowed_form_plugins         = array( 'auto', 'wsform', 'gravityforms', 'wpforms', 'cf7', 'fluentforms', 'formidable', 'ninja', 'generic' );
+		$allowed_form_plugins         = array( 'auto', 'wsform', 'gravityforms', 'wpforms', 'cf7', 'fluentforms', 'formidable', 'ninja', 'elementor', 'generic' );
 		$form_plugin_input            = sanitize_text_field( $input['form_plugin'] ?? 'auto' );
 		$clean['form_plugin']         = in_array( $form_plugin_input, $allowed_form_plugins, true ) ? $form_plugin_input : 'auto';
 		$clean['track_scroll']        = isset( $input['track_scroll'] ) ? '1' : '0';

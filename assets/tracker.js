@@ -3,7 +3,8 @@
  *
  * Fires GA4 custom events for:
  *   - CTA button clicks (primary / secondary / tertiary)
- *   - Form submissions (WS Form, Gravity Forms, WPForms, CF7, Fluent, Formidable, Ninja, generic)
+ *   - Form submissions (WS Form, Gravity Forms, WPForms, CF7, Fluent, Formidable,
+ *     Ninja, Elementor Pro, generic)
  *   - Scroll depth milestones
  *   - Outbound link clicks
  *   - Phone number clicks (tel:)
@@ -45,6 +46,13 @@
 		}
 
 		window.gtag( 'event', eventName, fullParams );
+	}
+
+	function cssEscape( value ) {
+		if ( window.CSS && typeof window.CSS.escape === 'function' ) {
+			return window.CSS.escape( value );
+		}
+		return String( value ).replace( /[^a-zA-Z0-9_-]/g, '\\$&' );
 	}
 
 	/* ─── Attribution ───────────────────────────────────────────────────────── */
@@ -143,34 +151,71 @@
 			return;
 		}
 
-		var classMap = {};
+		// Build one selector per configured CTA. The settings field is sanitized
+		// with sanitize_text_field rather than sanitize_html_class, so a value may
+		// legitimately hold several classes ("btn btn--action") or carry a stray
+		// leading dot. Escape each token and confirm the result parses — an
+		// unusable selector would otherwise throw on every click on the site.
+		var ctas = [];
+
 		cfg.ctaClasses.forEach( function ( cta ) {
-			if ( cta.cssClass ) {
-				classMap[ cta.cssClass ] = { label: cta.label, tier: cta.tier };
+			if ( ! cta.cssClass ) return;
+
+			// Space-separated classes are ANDed: "btn btn--action" → ".btn.btn--action".
+			var selector = cta.cssClass
+				.split( /\s+/ )
+				.filter( Boolean )
+				.map( function ( cls ) {
+					return '.' + cssEscape( cls.replace( /^\.+/, '' ) );
+				} )
+				.join( '' );
+
+			if ( ! selector ) return;
+
+			try {
+				document.querySelector( selector );
+			} catch ( err ) {
+				if ( cfg.debugMode ) {
+					console.warn( '[PPT] Ignoring unusable CTA class:', cta.cssClass );
+				}
+				return;
 			}
+
+			ctas.push( { selector: selector, label: cta.label, tier: cta.tier } );
 		} );
 
+		if ( ! ctas.length ) return;
+
+		var combined = ctas.map( function ( c ) { return c.selector; } ).join( ',' );
+
 		document.addEventListener( 'click', function ( e ) {
-			var target = e.target;
+			if ( ! e.target || ! e.target.closest ) return;
 
-			for ( var i = 0; i < 3; i++ ) {
-				if ( ! target || target === document ) break;
-				var classList = ( target.className || '' ).toString().split( /\s+/ );
+			// Only count clicks that landed on something actually clickable. Page
+			// builders put the CTA class on a wrapper — Elementor sits five levels
+			// above the button text — so searching ancestors without this bound
+			// would turn every click inside that wrapper into a cta_click.
+			var control = e.target.closest( 'a, button, input[type="submit"], input[type="button"], [role="button"]' );
+			if ( ! control ) return;
 
-				for ( var c = 0; c < classList.length; c++ ) {
-					var cls = classList[ c ];
-					if ( classMap[ cls ] ) {
-						sendEvent( 'cta_click', {
-							cta_tier     : classMap[ cls ].tier,
-							cta_label    : classMap[ cls ].label,
-							button_text  : ( target.innerText || target.value || '' ).trim().substring( 0, 100 ),
-							button_class : ( target.className || '' ).toString().trim(),
-							link_url     : target.href || '',
-						} );
-						return;
-					}
-				}
-				target = target.parentElement;
+			// Nearest matching ancestor wins, so a CTA nested inside another CTA
+			// reports the inner one; config order only breaks ties on one element.
+			var container = control.closest( combined );
+			if ( ! container ) return;
+
+			for ( var i = 0; i < ctas.length; i++ ) {
+				if ( ! container.matches( ctas[ i ].selector ) ) continue;
+
+				sendEvent( 'cta_click', {
+					cta_tier     : ctas[ i ].tier,
+					cta_label    : ctas[ i ].label,
+					// textContent fallback: innerText is layout-dependent and comes
+					// back empty for buttons that are off-screen or in a hidden tab.
+					button_text  : ( control.innerText || control.textContent || control.value || '' ).trim().substring( 0, 100 ),
+					button_class : ( container.className || '' ).toString().trim().substring( 0, 100 ),
+					link_url     : control.href || '',
+				} );
+				return;
 			}
 		} );
 	}
@@ -300,10 +345,38 @@
 			} );
 		}
 
+		/* Elementor Pro Forms ─────────────────────────────────────────────────
+		   Elementor submits over AJAX and fires submit_success on the form once
+		   the response comes back clean. It is triggered through jQuery, so a
+		   native listener would never see it — we must bind with jQuery too. */
+		if ( ( isAuto || plugin === 'elementor' ) && typeof jQuery !== 'undefined' ) {
+			jQuery( document ).on( 'submit_success', '.elementor-form', function () {
+				var form   = this;
+				var hidden = form.querySelector( 'input[name="form_id"]' );
+
+				// Elementor's hidden form_id is the widget ID and is stable across
+				// renames; the name attribute is what the client sees in the editor.
+				var id    = ( hidden && hidden.value ) || form.getAttribute( 'name' ) || form.id || '';
+				var title = form.getAttribute( 'name' )
+					|| form.getAttribute( 'aria-label' )
+					|| ( id ? 'Elementor Form ' + id : 'Elementor Form' );
+
+				sendEvent( 'form_submit', buildFormPayload( id, title, 'elementor' ) );
+			} );
+		}
+
 		/* Generic HTML fallback ───────────────────────────────────────────────*/
 		if ( isAuto || plugin === 'generic' ) {
 			document.addEventListener( 'submit', function ( e ) {
-				var form  = e.target;
+				var form = e.target;
+
+				// Elementor calls preventDefault() but lets the submit event bubble,
+				// so without this guard an Elementor form would report twice: once
+				// here on the attempt, once above on the actual success.
+				if ( isAuto && form.classList && form.classList.contains( 'elementor-form' ) ) {
+					return;
+				}
+
 				var id    = form.id || form.getAttribute( 'name' ) || 'unknown';
 				var title = form.getAttribute( 'aria-label' ) || id;
 				sendEvent( 'form_submit', buildFormPayload( id, title, 'generic' ) );
