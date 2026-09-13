@@ -1,0 +1,36 @@
+.ppt-settings-wrap h1 .dashicons { font-size: 28px; width: 28px; height: 28px; vertical-align: middle; margin-right: 8px; color: #800000; }
+.ppt-settings-wrap h1 .ppt-version { font-size: 13px; font-weight: 400; color: #666; margin-left: 8px; vertical-align: middle; }
+.ppt-settings-wrap .ppt-intro { color: #666; margin-top: 0; }
+.ppt-settings-wrap h2 { color: #1e252b; border-bottom: 2px solid #800000; padding-bottom: 6px; }
+.ppt-settings-wrap .form-table th { width: 220px; }
+.ppt-settings-wrap input[type=text]:focus,
+.ppt-settings-wrap input[type=url]:focus,
+.ppt-settings-wrap input[type=password]:focus { border-color: #800000; box-shadow: 0 0 0 1px #800000; }
+.ppt-settings-wrap .ppt-constant { color: #b26200; }
+
+.ppt-inline-fields { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.ppt-inline-fields label { display: block; font-weight: 600; margin-bottom: 4px; }
+
+.ppt-health { background: #fff; border: 1px solid #ddd; border-left: 4px solid #800000; border-radius: 4px; padding: 16px 20px; margin: 16px 0 24px; max-width: 900px; }
+.ppt-health h2 { margin-top: 0; border: 0; padding: 0; font-size: 16px; }
+.ppt-health-list { margin: 0; }
+.ppt-health-list li { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; line-height: 1.5; }
+.ppt-health-list .dashicons { flex: 0 0 20px; }
+.ppt-health-ok .dashicons { color: #00a32a; }
+.ppt-health-warn .dashicons { color: #dba617; }
+.ppt-health-error .dashicons { color: #d63638; }
+.ppt-health-actions { margin: 14px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#ppt-action-result { font-size: 13px; }
+#ppt-action-result.is-ok { color: #00a32a; }
+#ppt-action-result.is-error { color: #d63638; }
+
+.ppt-map-table { max-width: 1100px; }
+.ppt-map-table input[type=text] { width: 100%; }
+.ppt-map-table td, .ppt-map-table th { vertical-align: middle; }
+.ppt-map-table th:nth-child(2), .ppt-map-table td:nth-child(2) { width: 90px; }
+.ppt-map-table th:last-child, .ppt-map-table td:last-child { width: 40px; text-align: center; }
+.ppt-map-remove { font-size: 18px; line-height: 1; text-decoration: none; }
+
+.ppt-event-reference { background: #f9f9f9; border: 1px solid #ddd; border-radius: 6px; padding: 20px; margin-top: 24px; max-width: 900px; }
+.ppt-event-reference h2 { margin-top: 0; }
+.ppt-event-reference table { font-size: 13px; }

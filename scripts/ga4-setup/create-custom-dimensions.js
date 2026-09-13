@@ -27,24 +27,43 @@ import { AnalyticsAdminServiceClient } from '@google-analytics/admin';
 /* Event parameters sent by the plugin. parameterName must match exactly what
    tracker.js sends; displayName is the human-readable label shown in GA4. */
 const DIMENSIONS = [
+	// Event-specific
 	{ parameterName: 'cta_tier',         displayName: 'CTA Tier' },
 	{ parameterName: 'cta_label',        displayName: 'CTA Label' },
 	{ parameterName: 'button_text',      displayName: 'Button Text' },
 	{ parameterName: 'button_class',     displayName: 'Button Class' },
 	{ parameterName: 'link_url',         displayName: 'Link URL' },
 	{ parameterName: 'link_text',        displayName: 'Link Text' },
+	{ parameterName: 'link_domain',      displayName: 'Link Domain' },
+	{ parameterName: 'file_name',        displayName: 'File Name' },
+	{ parameterName: 'file_extension',   displayName: 'File Extension' },
 	{ parameterName: 'form_id',          displayName: 'Form ID' },
 	{ parameterName: 'form_title',       displayName: 'Form Title' },
 	{ parameterName: 'form_plugin',      displayName: 'Form Plugin' },
+	{ parameterName: 'lead_id',          displayName: 'Lead ID' },
 	{ parameterName: 'percent_scrolled', displayName: 'Percent Scrolled' },
 	{ parameterName: 'phone_number',     displayName: 'Phone Number' },
+	{ parameterName: 'video_provider',   displayName: 'Video Provider' },
+	{ parameterName: 'video_title',      displayName: 'Video Title' },
+	{ parameterName: 'video_url',        displayName: 'Video URL' },
+	{ parameterName: 'video_percent',    displayName: 'Video Percent' },
+	// Last-touch attribution (on every event)
 	{ parameterName: 'traffic_source',   displayName: 'Traffic Source' },
 	{ parameterName: 'traffic_medium',   displayName: 'Traffic Medium' },
 	{ parameterName: 'traffic_campaign', displayName: 'Traffic Campaign' },
 	{ parameterName: 'traffic_keyword',  displayName: 'Traffic Keyword' },
 	{ parameterName: 'traffic_content',  displayName: 'Traffic Content' },
+	{ parameterName: 'traffic_channel',  displayName: 'Traffic Channel' },
 	{ parameterName: 'gclid',            displayName: 'Google Click ID' },
 	{ parameterName: 'fbclid',           displayName: 'Facebook Click ID' },
+	{ parameterName: 'msclkid',          displayName: 'Microsoft Click ID' },
+	{ parameterName: 'ttclid',           displayName: 'TikTok Click ID' },
+	// First-touch attribution (on every event)
+	{ parameterName: 'first_source',     displayName: 'First Touch Source' },
+	{ parameterName: 'first_medium',     displayName: 'First Touch Medium' },
+	{ parameterName: 'first_channel',    displayName: 'First Touch Channel' },
+	{ parameterName: 'landing_page',     displayName: 'First Landing Page' },
+	{ parameterName: 'ppt_visitor_id',   displayName: 'PPT Visitor ID' },
 ];
 
 async function main() {
