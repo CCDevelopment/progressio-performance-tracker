@@ -4,7 +4,7 @@ Tags: ga4, google analytics, conversion tracking, event tracking, button clicks
 Requires at least: 5.9
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -58,6 +58,18 @@ Select "Generic (HTML form submit fallback)". It listens for the native form sub
 Add a row under **Lead Field Mapping** for that form. Keys match the field ID or label; join several with `|` (e.g. `First Name|Last Name`).
 
 == Changelog ==
+
+= 1.6.0 =
+**SEO meta over the REST API**
+* SEO title, meta description and focus keyword can now be set over the WordPress REST API (`POST`/`PUT` to `/wp/v2/posts`, `meta` object) on sites running Rank Math. Rank Math stores these as ordinary post meta and does not register the keys for REST writes, so WordPress discarded them silently — the post saved with a `201` and the SEO fields stayed empty, with nothing in the response to indicate it. This lets the Progressio Dash content pipeline publish posts with their SEO fields already filled in.
+* Supported plugins and keys — only the keys of the plugin actually active are considered, so no orphan meta is created:
+  * **Rank Math** — `rank_math_title`, `rank_math_description`, `rank_math_focus_keyword`
+  * **Yoast SEO** — `_yoast_wpseo_title`, `_yoast_wpseo_metadesc`, `_yoast_wpseo_focuskw`
+* Current Yoast releases (verified on Yoast SEO 28.5) already register these three keys for REST themselves, so they were already writable there. Any key an SEO plugin already exposes is left untouched rather than re-registered — re-registering would silently replace that plugin's own sanitize and auth callbacks with ours. Older Yoast builds that lack the registration are still covered.
+* Writes are gated on the `edit_post` capability for the specific post, so an authenticated low-privilege user (a Subscriber, for example) cannot rewrite SEO meta. Registration covers the `post` post type; widen it with the `ppt_seo_meta_post_types` filter.
+* Only single-line string fields are exposed. Robots directives, schema and social overrides are array or serialized values and are deliberately left alone.
+* Sites running neither Rank Math nor Yoast register nothing and are unaffected; deactivating the SEO plugin is safe.
+* Lead payloads now carry a read-only `seoPlugin` field (`rank_math`, `yoast`, `rank_math+yoast` or `none`) so the dashboard can report whether SEO meta is writable without having to attempt a publish first.
 
 = 1.5.0 =
 **Security**

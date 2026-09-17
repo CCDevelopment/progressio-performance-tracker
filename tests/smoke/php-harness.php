@@ -60,6 +60,11 @@ function wp_remote_retrieve_response_code( $r ) { return $r['response']['code'];
 function wp_remote_retrieve_response_message( $r ) { return $r['response']['message']; }
 function wp_remote_retrieve_body( $r ) { return $r['body']; }
 function human_time_diff( $t ) { return '1 min'; }
+$GLOBALS['meta'] = array();
+$GLOBALS['can_edit'] = true;
+function register_post_meta( $pt, $key, $args ) { $GLOBALS['meta'][ $pt ][ $key ] = $args; return true; }
+function get_registered_meta_keys( $type, $subtype = '' ) { return $GLOBALS['meta'][ $subtype ] ?? array(); }
+function current_user_can( $cap, $id = null ) { return 'edit_post' === $cap ? (bool) $GLOBALS['can_edit'] : true; }
 
 $root = dirname( __DIR__, 1 );
 $plugin = getenv( "PPT_ROOT" ) ?: dirname( __DIR__, 2 );
@@ -220,6 +225,7 @@ ok( 'Direct' === $p['lastTouch']['channel'] && 'Paid Search' === $p['firstTouch'
 ok( 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' === $p['visitorId'] && 64 === strlen( $p['contactHash'] ) && 32 === strlen( $p['ipHash'] ), 'ids/hashes' );
 ok( false === $p['isSpam'] && 'cf7' === $p['formPlugin'] && 'Contact' === $p['formTitle'] && '5' === $p['formId'], 'form meta' );
 ok( ! array_key_exists( 'phone', $p ) && ! array_key_exists( 'message', $p ), 'empty fields omitted' );
+ok( 'none' === $p['seoPlugin'], 'seoPlugin reported in payload: ' . $p['seoPlugin'] );
 $status = $leads->get_status();
 ok( 1 === $status['total_sent'] && 'lead_123' === $status['last_lead_id'], 'status recorded' );
 
@@ -242,6 +248,62 @@ $GLOBALS['http'] = array();
 $r = $leads->send_test( 'me@example.com' );
 $p = json_decode( $GLOBALS['http'][0]['args']['body'], true );
 ok( $r['ok'] && true === $p['test'] && 'me@example.com' === $p['email'], 'test lead flagged' );
+
+// ── SEO meta registration ───────────────────────────────────────────────────
+// Detection flips via class_exists(); the real constants can only be set once.
+ok( array() === PPT_SEO_Meta::detect(), 'no SEO plugin detected by default' );
+ok( 'none' === PPT_SEO_Meta::detected_label(), 'label is none with no SEO plugin' );
+PPT_SEO_Meta::register();
+ok( array() === $GLOBALS['meta'], 'nothing registered when no SEO plugin is active' );
+
+PPT_SEO_Meta::init();
+ok( ! empty( $GLOBALS['actions']['init'] ), 'registration hooked on init' );
+
+eval( 'class RankMath {}' );
+ok( array( 'rank_math' ) === PPT_SEO_Meta::detect(), 'Rank Math detected alone' );
+ok( 'rank_math' === PPT_SEO_Meta::detected_label(), 'label is rank_math' );
+PPT_SEO_Meta::register();
+$post_meta = $GLOBALS['meta']['post'] ?? array();
+ok( array( 'rank_math_title', 'rank_math_description', 'rank_math_focus_keyword' ) === array_keys( $post_meta ), 'exactly the three Rank Math keys: ' . implode( ',', array_keys( $post_meta ) ) );
+ok( array( 'post' ) === array_keys( $GLOBALS['meta'] ), 'registered for post only' );
+$args = $post_meta['rank_math_title'];
+ok( true === $args['single'] && 'string' === $args['type'] && true === $args['show_in_rest'], 'single string, shown in REST' );
+ok( is_callable( $args['auth_callback'] ), 'auth_callback is callable' );
+
+$GLOBALS['can_edit'] = false;
+ok( false === call_user_func( $args['auth_callback'], true, 'rank_math_title', 42 ), 'auth_callback refuses without edit_post' );
+$GLOBALS['can_edit'] = true;
+ok( true === call_user_func( $args['auth_callback'], false, 'rank_math_title', 42 ), 'auth_callback allows with edit_post' );
+
+eval( 'class WPSEO_Options {}' );
+ok( array( 'rank_math', 'yoast' ) === PPT_SEO_Meta::detect(), 'both detected when both active' );
+ok( 'rank_math+yoast' === PPT_SEO_Meta::detected_label(), 'label reports both' );
+$GLOBALS['meta'] = array();
+PPT_SEO_Meta::register();
+$keys = array_keys( $GLOBALS['meta']['post'] );
+ok( 6 === count( $keys ), 'six keys when both plugins are active' );
+ok( in_array( '_yoast_wpseo_title', $keys, true ) && in_array( '_yoast_wpseo_metadesc', $keys, true ) && in_array( '_yoast_wpseo_focuskw', $keys, true ), 'protected Yoast keys registered with leading underscore' );
+foreach ( $GLOBALS['meta']['post'] as $k => $a ) {
+	if ( 'string' !== $a['type'] || true !== $a['show_in_rest'] || ! is_callable( $a['auth_callback'] ) ) { ok( false, "key $k misconfigured" ); }
+}
+ok( ! array_intersect( array( 'rank_math_robots', 'rank_math_advanced_robots', '_yoast_wpseo_meta-robots-noindex' ), $keys ), 'no array/serialized keys registered' );
+
+
+// A key another plugin already exposes for REST is left alone, so its own
+// sanitize/auth callbacks survive. Verified real-world case: Yoast 28.5.
+$GLOBALS['meta'] = array( 'post' => array(
+	'_yoast_wpseo_title' => array( 'show_in_rest' => true, 'type' => 'string', 'single' => true, 'sanitize_callback' => 'yoast_own_sanitizer', 'auth_callback' => 'yoast_own_auth' ),
+) );
+PPT_SEO_Meta::register();
+ok( 'yoast_own_sanitizer' === $GLOBALS['meta']['post']['_yoast_wpseo_title']['sanitize_callback'], 'existing REST registration not overridden' );
+ok( isset( $GLOBALS['meta']['post']['_yoast_wpseo_metadesc'] ) && isset( $GLOBALS['meta']['post']['rank_math_title'] ), 'keys that were missing are still registered alongside it' );
+
+// A key registered WITHOUT show_in_rest is not considered exposed, so we fix it.
+$GLOBALS['meta'] = array( 'post' => array(
+	'rank_math_title' => array( 'show_in_rest' => false, 'type' => 'string', 'single' => true ),
+) );
+PPT_SEO_Meta::register();
+ok( true === $GLOBALS['meta']['post']['rank_math_title']['show_in_rest'], 'non-REST registration is upgraded' );
 
 echo "\n" . ( $fail ? "$fail FAILURE(S)" : 'ALL PASSED' ) . "\n";
 exit( $fail ? 1 : 0 );

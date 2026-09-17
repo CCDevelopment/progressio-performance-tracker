@@ -76,6 +76,7 @@ Keys marked ⭐ are new in 1.5.0. Any key whose value is empty/null is **omitted
 |---|---|---|
 | `siteUrl` ⭐ | URL | Client site `home_url()`. Handy for validating the key belongs to that site. |
 | `pluginVersion` ⭐ | string | |
+| `seoPlugin` | string | Which SEO plugin the site runs, as detected at send time: `rank_math`, `yoast`, `none`, or `rank_math+yoast` if a site somehow runs both. Present from plugin v1.6.0. Anything other than `none` means SEO meta is writable over `/wp/v2/posts` on that site, so "Test connection" can report it without attempting a publish. Match on substring rather than strict equality so the both-active value is handled. Absent on leads from v1.5.0 and earlier — treat absence as unknown, not as `none`.
 | `submittedAt` ⭐ | ISO-8601 UTC | |
 | `test` ⭐ | `true` | Only present on test leads from the settings page / `wp ppt test-lead`. Name is `PPT Test Lead`, email `test+<ts>@example.com` unless overridden. |
 
@@ -111,7 +112,8 @@ Keys marked ⭐ are new in 1.5.0. Any key whose value is empty/null is **omitted
   "isSpam": false,
   "spamScore": 0,
   "siteUrl": "https://client.com",
-  "pluginVersion": "1.5.0",
+  "pluginVersion": "1.6.0",
+  "seoPlugin": "rank_math",
   "submittedAt": "2026-09-13T08:41:17+00:00"
 }
 ```
@@ -145,3 +147,33 @@ Consequences for the dashboard:
 ## 5. GA4 join
 
 GA4 events from the same site carry `ppt_visitor_id` (= `visitorId`), `form_id`, `traffic_channel`, `first_channel`, and — on `generate_lead` — `lead_id` (whatever the API returned). If the dashboard ever pulls GA4 data, those are the join keys.
+
+## 6. SEO meta over the REST API (plugin v1.6.0)
+
+Relevant to the content pipeline, which publishes posts via `POST /wp/v2/posts` and sets SEO fields through the `meta` object.
+
+**The original premise was only half right.** It assumed neither Rank Math nor Yoast registers its meta keys for REST writes, so both needed the plugin's help. Checked against live installs:
+
+| Plugin | Registers its keys for REST itself? | Needs plugin v1.6.0? |
+|---|---|---|
+| Rank Math 1.0.277–1.0.278 | **No** | **Yes** — writes were silently dropped |
+| Yoast SEO 28.5 | **Yes**, with `show_in_rest` and its own sanitize/auth callbacks | No — already worked |
+
+Verified end-to-end on a Rank Math sandbox: before registration, `POST /wp/v2/posts` with `meta` returned `201` and stored empty strings; after, the same request stored and read back all three values. Yoast 28.5 was confirmed by inspecting its registration (`WPSEO_Meta::sanitize_post_meta`, auth closure in `wordpress-seo/inc/class-wpseo-meta.php`) and the `/wp/v2/posts` schema, which already lists the three keys as writable strings.
+
+Consequences for the dashboard:
+
+- The plugin **skips any key the SEO plugin already exposes**, so it never overrides Yoast's own sanitizer or auth callback. It fills the gap on Rank Math, and on older Yoast builds that lack the registration.
+- Keep sending both key sets on every publish. Unregistered keys are still dropped silently, so the self-verifying read-back stays necessary.
+- Rank Math sites only get SEO meta once they are on v1.6.0. Yoast sites should already be working — if one is not, it is an older Yoast build, and v1.6.0 covers it.
+- `seoPlugin` on the lead payload reports what was detected, so "Test connection" can say which SEO plugin a site runs without attempting a publish.
+
+Keys (single-line strings only; robots, schema and social overrides are out of scope):
+
+| Rank Math | Yoast |
+|---|---|
+| `rank_math_title` | `_yoast_wpseo_title` |
+| `rank_math_description` | `_yoast_wpseo_metadesc` |
+| `rank_math_focus_keyword` | `_yoast_wpseo_focuskw` |
+
+Writes are gated on `edit_post` for the specific post, so the Application Password user must be able to edit it — an Editor or Administrator. A Subscriber-level account is refused.

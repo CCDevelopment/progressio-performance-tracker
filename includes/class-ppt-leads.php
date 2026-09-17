@@ -578,6 +578,7 @@ class PPT_Leads {
 
 			'siteUrl'            => home_url(),
 			'pluginVersion'      => PPT_VERSION,
+			'seoPlugin'          => PPT_SEO_Meta::detected_label(),
 			'submittedAt'        => gmdate( 'c' ),
 		);
 

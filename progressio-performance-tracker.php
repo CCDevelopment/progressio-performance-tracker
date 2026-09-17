@@ -3,7 +3,7 @@
  * Plugin Name:       Progressio Performance Tracker
  * Plugin URI:        https://progressiodev.com
  * Description:       Tracks button clicks, form submissions, and traffic attribution data, sending custom events to GA4. Connects traffic source to conversion action for client reporting.
- * Version:           1.5.0
+ * Version:           1.6.0
  * Requires at least: 5.9
  * Requires PHP:      8.0
  * Author:            Progressio Development
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants.
-define( 'PPT_VERSION', '1.5.0' );
+define( 'PPT_VERSION', '1.6.0' );
 define( 'PPT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PPT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'PPT_PLUGIN_FILE', __FILE__ );
@@ -34,6 +34,7 @@ define( 'PPT_DEFAULT_ENDPOINT', 'https://dashboard.progressiodev.com/api/leads' 
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-settings.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-attribution.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-leads.php';
+require_once PPT_PLUGIN_DIR . 'includes/class-ppt-seo-meta.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-tracker.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -63,6 +64,7 @@ if ( file_exists( $ppt_puc ) ) {
 function ppt_init(): void {
 	PPT_Settings::get_instance();
 	PPT_Leads::get_instance();
+	PPT_SEO_Meta::init();
 	PPT_Tracker::get_instance();
 }
 add_action( 'plugins_loaded', 'ppt_init' );
