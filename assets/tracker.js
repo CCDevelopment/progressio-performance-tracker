@@ -15,7 +15,12 @@
  *   cookie. Both are read server-side by class-ppt-leads.php. The cookie
  *   format uses short keys — keep PPT_Attribution::KEYS in sync.
  *
- * Configuration arrives as window.pptConfig (see class-ppt-tracker.php).
+ * Configuration arrives as window.pptConfig (see class-ppt-tracker.php, or
+ * trackerScripts() in packages/node for non-WordPress sites).
+ *
+ * Public API, for forms the tracker cannot hook itself (custom fetch() submits
+ * on Node sites): window.ppt.formSubmitted( formId, formTitle, plugin ) once
+ * the server has accepted the form.
  */
 
 ( function () {
@@ -26,7 +31,7 @@
 	}
 
 	var cfg  = window.pptConfig;
-	var SITE = String( cfg.siteDomain || '' ).toLowerCase().replace( /^www\./, '' );
+	var SITE = String( cfg.siteDomain || location.hostname || '' ).toLowerCase().replace( /^www\./, '' );
 
 	var UTM_KEYS   = { utm_source: 's', utm_medium: 'm', utm_campaign: 'c', utm_term: 't', utm_content: 'n' };
 	var CLICK_KEYS = { gclid: 'g', fbclid: 'f', msclkid: 'ms', ttclid: 'tt', li_fat_id: 'li', dclid: 'dc' };
@@ -829,6 +834,32 @@
 			} ).observe( document.documentElement, { childList: true, subtree: true } );
 		}
 	}
+
+	/* ─── Public API ────────────────────────────────────────────────────────── */
+
+	/**
+	 * Report a successful submission of a form the tracker cannot hook itself.
+	 * Call it after the server responds OK, so the ppt_last_lead cookie set by
+	 * that response is there for generate_lead. Unlike fireFormSubmit(), the
+	 * generate_lead check runs even when form_submit was just fired by another
+	 * listener for the same submission.
+	 */
+	window.ppt = window.ppt || {};
+	window.ppt.formSubmitted = function ( formId, formTitle, plugin ) {
+		if ( ! cfg.trackForms ) return;
+
+		var params = {
+			form_id     : clip( formId || 'unknown', 100 ),
+			form_title  : clip( formTitle || formId || 'unknown', 100 ),
+			form_plugin : clip( plugin || 'custom', 40 ),
+		};
+		var now = Date.now();
+		if ( now - lastFormFire >= 1500 ) {
+			lastFormFire = now;
+			sendEvent( 'form_submit', params );
+		}
+		maybeFireGenerateLead( params );
+	};
 
 	/* ─── Init ──────────────────────────────────────────────────────────────── */
 

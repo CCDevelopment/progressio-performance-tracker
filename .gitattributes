@@ -1,0 +1,3 @@
+# WordPress sites update from GitHub's archive of master (plugin-update-checker).
+# Keep the Node package out of that archive so it never lands in wp-content.
+/packages export-ignore

@@ -1,0 +1,61 @@
+{
+  "name": "@progressio/performance-tracker",
+  "version": "1.6.0",
+  "description": "Progressio Performance Tracker for Node sites (Next.js, Astro, plain Vercel functions): the same GA4 tracking, attribution and Leads API delivery as the WordPress plugin.",
+  "type": "module",
+  "license": "GPL-2.0-or-later",
+  "author": "Progressio Development",
+  "homepage": "https://github.com/CCDevelopment/progressio-performance-tracker/tree/master/packages/node#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CCDevelopment/progressio-performance-tracker.git",
+    "directory": "packages/node"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./next": {
+      "types": "./next.d.ts",
+      "default": "./src/next.js"
+    },
+    "./tracker.js": "./dist/tracker.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "ppt": "./bin/ppt.mjs"
+  },
+  "files": [
+    "src",
+    "dist",
+    "bin",
+    "index.d.ts",
+    "next.d.ts",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "node scripts/sync-tracker.mjs",
+    "pretest": "node scripts/sync-tracker.mjs",
+    "test": "node --test \"test/*.test.js\"",
+    "prepack": "node scripts/sync-tracker.mjs"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.10.4"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
