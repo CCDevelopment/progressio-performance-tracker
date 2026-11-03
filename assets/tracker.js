@@ -4,7 +4,7 @@
  * Fires GA4 custom events for:
  *   - CTA clicks (data-ppt-cta attributes, or primary / secondary / tertiary classes)
  *   - Form submissions (WS Form, Gravity Forms, WPForms, CF7, Fluent, Formidable,
- *     Ninja, Elementor Pro, generic) and generate_lead once the Leads API accepts one
+ *     Ninja, Elementor Pro, Bricks, generic) and generate_lead once the Leads API accepts one
  *   - Scroll depth milestones
  *   - Outbound link clicks, file downloads, phone (tel:) and email (mailto:) clicks
  *   - Video engagement (YouTube, Vimeo, HTML5)
@@ -366,7 +366,7 @@
 		'.wpcf7-form', '.wpforms-form', 'form[id^="gform_"]', '.gform_wrapper form',
 		'form.wsf-form', 'form[id^="ws-form-"]', 'form[data-wsf-form-id]',
 		'.frm-fluent-form', 'form[class*="fluent_form"]', '.frm-show-form',
-		'.nf-form-cont form', '.elementor-form',
+		'.nf-form-cont form', '.elementor-form', 'form.brxe-form', '.brxe-form form',
 	].join( ',' );
 
 	var IGNORED_FORM_SELECTOR = 'form[role="search"], .search-form, #searchform, #commentform, #loginform, form.woocommerce-cart-form, form.woocommerce-ordering';
@@ -518,6 +518,15 @@
 				var id     = ( hidden && hidden.value ) || form.getAttribute( 'name' ) || form.id || '';
 				var title  = form.getAttribute( 'name' ) || form.getAttribute( 'aria-label' ) || ( id ? 'Elementor Form ' + id : 'Elementor Form' );
 				fireFormSubmit( id, title, 'elementor' );
+			} );
+		}
+
+		/* Bricks native forms: success is a document event carrying the element id. */
+		if ( isAuto || plugin === 'bricks' ) {
+			document.addEventListener( 'bricks/form/success', function ( e ) {
+				var detail = e.detail || {};
+				var id     = detail.elementId || '';
+				fireFormSubmit( id, 'Bricks Form ' + id, 'bricks' );
 			} );
 		}
 

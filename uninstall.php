@@ -15,8 +15,10 @@ function ppt_uninstall_site(): void {
 	delete_option( 'ppt_settings' );
 	delete_option( 'ppt_lead_status' );
 	delete_option( 'ppt_lead_queue' );
+	delete_option( 'ppt_spam_rules' );
 	delete_option( 'external_updates-progressio-performance-tracker' ); // PUC state.
 	wp_clear_scheduled_hook( 'ppt_process_lead_queue' );
+	wp_clear_scheduled_hook( 'ppt_refresh_spam_rules' );
 }
 
 if ( is_multisite() ) {

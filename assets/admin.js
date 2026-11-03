@@ -1,6 +1,6 @@
 /**
  * Progressio Performance Tracker — settings page behaviour.
- * Field-mapping repeater and the test-lead / retry-queue buttons.
+ * Field-mapping repeater and the test-lead / retry-queue / refresh-spam-rules buttons.
  */
 ( function () {
 	'use strict';
@@ -42,9 +42,10 @@
 
 	/* ─── AJAX actions ─────────────────────────────────────────────────────── */
 
-	var result = document.getElementById( 'ppt-action-result' );
+	var defaultResult = document.getElementById( 'ppt-action-result' );
 
-	function post( action, data, busyText, btn ) {
+	function post( action, data, busyText, btn, target ) {
+		var result = target || defaultResult;
 		if ( ! result || ! cfg.ajaxUrl ) return;
 
 		var body = new URLSearchParams( Object.assign( { action: action, nonce: cfg.nonce }, data || {} ) );
@@ -72,6 +73,13 @@
 	if ( testBtn ) {
 		testBtn.addEventListener( 'click', function () {
 			post( 'ppt_test_lead', {}, cfg.i18n.sending, testBtn );
+		} );
+	}
+
+	var spamBtn = document.getElementById( 'ppt-refresh-spam' );
+	if ( spamBtn ) {
+		spamBtn.addEventListener( 'click', function () {
+			post( 'ppt_refresh_spam_rules', {}, cfg.i18n.refreshing, spamBtn, document.getElementById( 'ppt-spam-result' ) );
 		} );
 	}
 

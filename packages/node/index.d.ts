@@ -14,6 +14,26 @@ export interface CaptureOptions {
   fieldMap?: Partial<Record<'name' | 'email' | 'phone' | 'message', string>>;
   isSpam?: boolean;
   spamScore?: number;
+  spamReason?: string;
+  spamRule?: string;
+  /**
+   * Run the Progressio spam filter (global block list from the dashboard plus
+   * spamAdd / spamAllow). Defaults to process.env.PPT_SPAM_FILTER. A match
+   * sets isSpam, spamReason and spamRule on the lead and `spam` on the result.
+   */
+  spamFilter?: boolean;
+  /** Extra rules for this site, one per line (or an array). Env: PPT_SPAM_ADD, "|"-separated. */
+  spamAdd?: string | string[];
+  /** Global rules to ignore on this site, one per line (or an array). Env: PPT_SPAM_ALLOW. */
+  spamAllow?: string | string[];
+  /** Use this rule set instead of fetching the global list. */
+  spamRules?: SpamRules;
+  /** Defaults to the leads endpoint with /leads replaced by /spam-rules. Env: PPT_SPAM_RULES_ENDPOINT. */
+  spamRulesEndpoint?: string;
+  /** Timeout for fetching the global list (once per instance, then cached). Default 3000. */
+  spamTimeoutMs?: number;
+  /** Set false if the site delivers flagged submissions anyway; the lead is then flagged but not marked blocked. */
+  spamBlocks?: boolean;
   /** Stored, but hidden from the client's inbox, the form-fill count and GA4. */
   test?: boolean;
   /** Defaults to process.env.PPT_LEADS_API_KEY. */
@@ -57,8 +77,26 @@ export interface CaptureResult {
   queued: boolean;
   leadId: string;
   error: string;
-  /** Set this on the form's response so tracker.js fires generate_lead. Null unless ok. */
+  /** Set this on the form's response so tracker.js fires generate_lead. Null unless ok, and null for spam. */
   cookie: LeadCookie | null;
+  /** The rule the submission tripped, or null. Present even when skipped. */
+  spam: SpamHit | null;
+  /** True when `spam` is set: reject the form instead of emailing the client. */
+  blocked: boolean;
+}
+
+export interface SpamRules {
+  phrases?: string[];
+  domains?: string[];
+  emails?: string[];
+  phones?: string[];
+}
+
+export interface SpamHit {
+  type: 'phrases' | 'domains' | 'emails' | 'phones';
+  rule: string;
+  /** Label (or id) of the field that matched. */
+  field: string;
 }
 
 export interface SendResult {
@@ -70,6 +108,26 @@ export interface SendResult {
 }
 
 export declare function captureLead(request: unknown, fields: FormFields, options?: CaptureOptions): Promise<CaptureResult>;
+
+/** Spam verdict only, with the same rules captureLead() uses. Never throws. */
+export declare function checkSpam(
+  fields: FormFields,
+  options?: Pick<CaptureOptions, 'apiKey' | 'endpoint' | 'spamAdd' | 'spamAllow' | 'spamRules' | 'spamRulesEndpoint' | 'spamTimeoutMs' | 'fetch'>,
+): Promise<SpamHit | null>;
+
+export declare function evaluateSpam(
+  fields: Array<{ id: string; label: string; type: string; value: string }>,
+  rules: SpamRules,
+): SpamHit | null;
+export declare function matchValue(value: string, rules: SpamRules): { type: SpamHit['type']; rule: string } | null;
+export declare function parseRuleLines(text: string | string[]): Required<SpamRules>;
+export declare function effectiveRules(input: { global?: SpamRules | Record<string, unknown>; add?: string | string[] | SpamRules; allow?: string | string[] | SpamRules }): Required<SpamRules>;
+export declare function getSpamRules(options?: {
+  apiKey?: string;
+  endpoint?: string;
+  fetch?: typeof fetch;
+  timeoutMs?: number;
+}): Promise<{ rules: Required<SpamRules>; fetchedAt: number; error: string }>;
 
 /** Adds the lead cookie to a Node ServerResponse, a Headers object or a Web Response. */
 export declare function applyLeadCookie(target: unknown, result: CaptureResult): void;

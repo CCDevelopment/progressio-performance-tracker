@@ -57,106 +57,58 @@ class PPT_Leads {
 
 	/* =========================================================================
 	 * FORM PLUGIN HOOKS
-	 * Every handler normalises its plugin's data into a list of fields shaped
-	 * as [ 'id' => string, 'label' => string, 'type' => string, 'value' => string ]
-	 * and hands off to handle_submission().
+	 * Every plugin has a normalise_*() method that turns its raw submission
+	 * into [ 'fields' => [ { id, label, type, value } ], 'form_id', 'title' ].
+	 * The success hooks below feed that to handle_submission(); PPT_Spam uses
+	 * the same normalisers from each plugin's validation hook.
 	 * ======================================================================= */
 
 	private function hook_forms(): void {
 		$plugin = (string) $this->settings->get( 'form_plugin', 'auto' );
 		$auto   = ( 'auto' === $plugin );
 		$want   = static fn( string $slug ) => $auto || $plugin === $slug;
+		$send   = function ( string $slug, ?array $n, array $extra = array() ): void {
+			if ( $n ) {
+				$this->handle_submission( $slug, $n['form_id'], $n['title'], $n['fields'], $extra );
+			}
+		};
 
 		// ── WS Form ───────────────────────────────────────────────────────────
 		// wsf_submit_post_complete fires server-side after a successful post,
-		// regardless of transport. Field values live in $submit->meta keyed by
-		// "field_{id}"; labels/types come from $submit->form_object.
+		// regardless of transport.
 		if ( $want( 'wsform' ) ) {
-			add_action( 'wsf_submit_post_complete', function ( $submit ) {
-				if ( ! is_object( $submit ) || empty( $submit->meta ) || ! is_array( $submit->meta ) ) {
-					return;
-				}
-				$map    = $this->wsform_field_map( $submit->form_object ?? null );
-				$fields = array();
-				foreach ( $submit->meta as $meta_key => $meta ) {
-					$value    = is_array( $meta ) ? ( $meta['value'] ?? '' ) : $meta;
-					$field_id = str_starts_with( (string) $meta_key, 'field_' ) ? substr( (string) $meta_key, 6 ) : (string) $meta_key;
-					$info     = $map[ $field_id ] ?? array();
-					$fields[] = $this->field( $field_id, $info['label'] ?? '', $info['type'] ?? '', $value );
-				}
-				$form_id = (string) ( $submit->form_id ?? ( $submit->form_object->id ?? '' ) );
-				$title   = ! empty( $submit->form_object->label ) ? (string) $submit->form_object->label : 'WS Form ' . $form_id;
-				$extra   = array();
-				if ( isset( $submit->spam_level ) && is_numeric( $submit->spam_level ) ) {
+			add_action( 'wsf_submit_post_complete', function ( $submit ) use ( $send ) {
+				$extra = array();
+				if ( is_object( $submit ) && isset( $submit->spam_level ) && is_numeric( $submit->spam_level ) ) {
 					$extra['spamScore'] = (int) $submit->spam_level;
 					$extra['isSpam']    = (int) $submit->spam_level >= 50;
 				}
-				$this->handle_submission( 'wsform', $form_id, $title, $fields, $extra );
+				$send( 'wsform', $this->normalise_wsform( $submit ), $extra );
 			}, 20, 1 );
 		}
 
 		// ── Gravity Forms ─────────────────────────────────────────────────────
 		if ( $want( 'gravityforms' ) ) {
-			add_action( 'gform_after_submission', function ( $entry, $form ) {
-				if ( ! is_array( $entry ) || ! is_array( $form ) ) {
-					return;
-				}
-				$fields = array();
-				foreach ( (array) ( $form['fields'] ?? array() ) as $field ) {
-					if ( ! is_object( $field ) ) {
-						continue;
-					}
-					$label = (string) ( $field->label ?? '' );
-					$type  = (string) ( $field->type ?? '' );
-					if ( ! empty( $field->inputs ) && is_array( $field->inputs ) ) {
-						// Multi-input fields (Name, Address): one entry per sub-input.
-						foreach ( $field->inputs as $input ) {
-							$iid      = (string) ( $input['id'] ?? '' );
-							$ilabel   = trim( $label . ' ' . (string) ( $input['label'] ?? '' ) );
-							$fields[] = $this->field( $iid, $ilabel, $type, $entry[ $iid ] ?? '' );
-						}
-					}
-					$fields[] = $this->field( (string) $field->id, $label, $type, $entry[ (string) $field->id ] ?? '' );
-				}
+			add_action( 'gform_after_submission', function ( $entry, $form ) use ( $send ) {
 				$extra = array();
-				if ( isset( $entry['status'] ) ) {
+				if ( is_array( $entry ) && isset( $entry['status'] ) ) {
 					$extra['isSpam'] = ( 'spam' === $entry['status'] );
 				}
-				$this->handle_submission( 'gravityforms', (string) ( $form['id'] ?? '' ), (string) ( $form['title'] ?? 'Gravity Form' ), $fields, $extra );
+				$send( 'gravityforms', $this->normalise_gravityforms( $entry, $form ), $extra );
 			}, 10, 2 );
 		}
 
 		// ── WPForms ───────────────────────────────────────────────────────────
 		if ( $want( 'wpforms' ) ) {
-			add_action( 'wpforms_process_complete', function ( $fields_in, $entry, $form_data, $entry_id ) {
-				$fields = array();
-				foreach ( (array) $fields_in as $f ) {
-					if ( ! is_array( $f ) ) {
-						continue;
-					}
-					$id    = (string) ( $f['id'] ?? '' );
-					$label = (string) ( $f['name'] ?? '' );
-					$type  = (string) ( $f['type'] ?? '' );
-					$fields[] = $this->field( $id, $label, $type, $f['value'] ?? '' );
-					foreach ( array( 'first', 'middle', 'last' ) as $part ) {
-						if ( isset( $f[ $part ] ) && '' !== $f[ $part ] ) {
-							$fields[] = $this->field( $id . '.' . $part, $label . ' ' . $part, $type, $f[ $part ] );
-						}
-					}
-				}
-				$this->handle_submission(
-					'wpforms',
-					(string) ( $form_data['id'] ?? '' ),
-					(string) ( $form_data['settings']['form_title'] ?? 'WPForms' ),
-					$fields
-				);
+			add_action( 'wpforms_process_complete', function ( $fields_in, $entry, $form_data, $entry_id ) use ( $send ) {
+				$send( 'wpforms', $this->normalise_wpforms( (array) $fields_in, (array) $form_data ) );
 			}, 10, 4 );
 		}
 
 		// ── Contact Form 7 ────────────────────────────────────────────────────
 		// wpcf7_mail_sent only fires for non-spam submissions that mailed OK.
 		if ( $want( 'cf7' ) ) {
-			add_action( 'wpcf7_mail_sent', function ( $contact_form ) {
+			add_action( 'wpcf7_mail_sent', function ( $contact_form ) use ( $send ) {
 				if ( ! class_exists( 'WPCF7_Submission' ) ) {
 					return;
 				}
@@ -164,19 +116,7 @@ class PPT_Leads {
 				if ( ! $submission ) {
 					return;
 				}
-				$types = array();
-				if ( method_exists( $contact_form, 'scan_form_tags' ) ) {
-					foreach ( (array) $contact_form->scan_form_tags() as $tag ) {
-						if ( is_object( $tag ) && ! empty( $tag->name ) ) {
-							$types[ $tag->name ] = (string) ( $tag->basetype ?? ( $tag->type ?? '' ) );
-						}
-					}
-				}
-				$fields = array();
-				foreach ( (array) $submission->get_posted_data() as $key => $value ) {
-					$fields[] = $this->field( (string) $key, (string) $key, $types[ $key ] ?? '', $value );
-				}
-				$this->handle_submission( 'cf7', (string) $contact_form->id(), (string) $contact_form->title(), $fields, array( 'isSpam' => false ) );
+				$send( 'cf7', $this->normalise_cf7( $contact_form, $submission ), array( 'isSpam' => false ) );
 			}, 10, 1 );
 		}
 
@@ -188,63 +128,36 @@ class PPT_Leads {
 
 		// ── Formidable Forms ──────────────────────────────────────────────────
 		if ( $want( 'formidable' ) ) {
-			add_action( 'frm_after_create_entry', function ( $entry_id, $form_id ) {
-				if ( ! class_exists( 'FrmEntryMeta' ) || ! class_exists( 'FrmField' ) ) {
-					return;
-				}
-				$fields = array();
-				foreach ( (array) FrmEntryMeta::get_entry_meta_array( $entry_id ) as $field_id => $value ) {
-					$field = FrmField::getOne( $field_id );
-					if ( $field ) {
-						$fields[] = $this->field( (string) $field_id, (string) ( $field->name ?? '' ), (string) ( $field->type ?? '' ), $value );
-					}
-				}
-				$this->handle_submission( 'formidable', (string) $form_id, 'Formidable Form ' . $form_id, $fields );
+			add_action( 'frm_after_create_entry', function ( $entry_id, $form_id ) use ( $send ) {
+				$send( 'formidable', $this->normalise_formidable_entry( (int) $entry_id, (string) $form_id ) );
 			}, 10, 2 );
 		}
 
 		// ── Elementor Pro Forms ───────────────────────────────────────────────
 		// Fires after validation, so reCAPTCHA / required-field failures never
-		// reach us. Each field carries title (label), type and value.
+		// reach us.
 		if ( $want( 'elementor' ) ) {
-			add_action( 'elementor_pro/forms/new_record', function ( $record, $handler ) {
-				if ( ! is_object( $record ) || ! method_exists( $record, 'get' ) ) {
-					return;
-				}
-				$raw = $record->get( 'fields' );
-				if ( ! is_array( $raw ) ) {
-					return;
-				}
-				$fields = array();
-				foreach ( $raw as $field_id => $f ) {
-					$fields[] = $this->field(
-						(string) $field_id,
-						is_array( $f ) ? (string) ( $f['title'] ?? '' ) : '',
-						is_array( $f ) ? (string) ( $f['type'] ?? '' ) : '',
-						is_array( $f ) ? ( $f['value'] ?? '' ) : $f
-					);
-				}
-				$settings = $record->get( 'form_settings' );
-				$settings = is_array( $settings ) ? $settings : array();
-				$title    = (string) ( $settings['form_name'] ?? '' );
-				$form_id  = (string) ( $settings['id'] ?? ( $settings['form_id'] ?? '' ) );
-				$this->handle_submission( 'elementor', $form_id ?: $title, $title ?: 'Elementor Form', $fields );
+			add_action( 'elementor_pro/forms/new_record', function ( $record, $handler ) use ( $send ) {
+				$send( 'elementor', $this->normalise_elementor( $record ) );
 			}, 10, 2 );
 		}
 
 		// ── Ninja Forms ───────────────────────────────────────────────────────
 		if ( $want( 'ninja' ) ) {
-			add_action( 'ninja_forms_after_submission', function ( $form_data ) {
-				$fields = array();
-				foreach ( (array) ( $form_data['fields'] ?? array() ) as $f ) {
-					if ( ! is_array( $f ) ) {
-						continue;
-					}
-					$fields[] = $this->field( (string) ( $f['key'] ?? ( $f['id'] ?? '' ) ), (string) ( $f['label'] ?? '' ), (string) ( $f['type'] ?? '' ), $f['value'] ?? '' );
-				}
-				$form_id = (string) ( $form_data['form_id'] ?? '' );
-				$this->handle_submission( 'ninja', $form_id, 'Ninja Form ' . $form_id, $fields );
+			add_action( 'ninja_forms_after_submission', function ( $form_data ) use ( $send ) {
+				$send( 'ninja', $this->normalise_ninja( (array) $form_data ) );
 			}, 10, 1 );
+		}
+
+		// ── Bricks native forms ───────────────────────────────────────────────
+		// Bricks has no "after submit" action that fires for every form; the
+		// response filter runs only once every form action has succeeded, which
+		// is the same moment. We return the response untouched.
+		if ( $want( 'bricks' ) ) {
+			add_filter( 'bricks/form/response', function ( $response, $form ) use ( $send ) {
+				$send( 'bricks', $this->normalise_bricks( $form ) );
+				return $response;
+			}, 10, 2 );
 		}
 	}
 
@@ -260,9 +173,117 @@ class PPT_Leads {
 		}
 		$seen[ (string) $entry_id ] = true;
 
-		$meta = $this->fluent_field_map( $form );
+		$n = $this->normalise_fluentforms( (array) $form_data, $form );
+		if ( $n ) {
+			$this->handle_submission( 'fluentforms', $n['form_id'], $n['title'], $n['fields'] );
+		}
+	}
+
+	/* =========================================================================
+	 * NORMALISERS: raw plugin data to { fields, form_id, title }
+	 * ======================================================================= */
+
+	private function normalised( array $fields, string $form_id, string $title ): array {
+		return array( 'fields' => $fields, 'form_id' => $form_id, 'title' => $title );
+	}
+
+	/**
+	 * WS Form: field values live in $submit->meta keyed by "field_{id}";
+	 * labels/types come from $submit->form_object.
+	 */
+	public function normalise_wsform( $submit ): ?array {
+		if ( ! is_object( $submit ) || empty( $submit->meta ) || ! is_array( $submit->meta ) ) {
+			return null;
+		}
+		$map    = $this->wsform_field_map( $submit->form_object ?? null );
 		$fields = array();
-		foreach ( (array) $form_data as $key => $value ) {
+		foreach ( $submit->meta as $meta_key => $meta ) {
+			$value    = is_array( $meta ) ? ( $meta['value'] ?? '' ) : $meta;
+			$field_id = str_starts_with( (string) $meta_key, 'field_' ) ? substr( (string) $meta_key, 6 ) : (string) $meta_key;
+			$info     = $map[ $field_id ] ?? array();
+			$fields[] = $this->field( $field_id, $info['label'] ?? '', $info['type'] ?? '', $value );
+		}
+		$form_id = (string) ( $submit->form_id ?? ( $submit->form_object->id ?? '' ) );
+		$title   = ! empty( $submit->form_object->label ) ? (string) $submit->form_object->label : 'WS Form ' . $form_id;
+		return $this->normalised( $fields, $form_id, $title );
+	}
+
+	/**
+	 * Gravity Forms: $entry is keyed by field id (and "id.n" for sub-inputs).
+	 * Works for a saved entry and for GFFormsModel::get_current_lead() during
+	 * validation alike.
+	 */
+	public function normalise_gravityforms( $entry, $form ): ?array {
+		if ( ! is_array( $entry ) || ! is_array( $form ) ) {
+			return null;
+		}
+		$fields = array();
+		foreach ( (array) ( $form['fields'] ?? array() ) as $field ) {
+			if ( ! is_object( $field ) ) {
+				continue;
+			}
+			$label = (string) ( $field->label ?? '' );
+			$type  = (string) ( $field->type ?? '' );
+			if ( ! empty( $field->inputs ) && is_array( $field->inputs ) ) {
+				// Multi-input fields (Name, Address): one entry per sub-input.
+				foreach ( $field->inputs as $input ) {
+					$iid      = (string) ( $input['id'] ?? '' );
+					$ilabel   = trim( $label . ' ' . (string) ( $input['label'] ?? '' ) );
+					$fields[] = $this->field( $iid, $ilabel, $type, $entry[ $iid ] ?? '' );
+				}
+			}
+			$fields[] = $this->field( (string) $field->id, $label, $type, $entry[ (string) $field->id ] ?? '' );
+		}
+		return $this->normalised( $fields, (string) ( $form['id'] ?? '' ), (string) ( $form['title'] ?? 'Gravity Form' ) );
+	}
+
+	/** WPForms: processed fields carry id / name / type / value (+ name parts). */
+	public function normalise_wpforms( array $fields_in, array $form_data ): ?array {
+		$fields = array();
+		foreach ( $fields_in as $f ) {
+			if ( ! is_array( $f ) ) {
+				continue;
+			}
+			$id    = (string) ( $f['id'] ?? '' );
+			$label = (string) ( $f['name'] ?? '' );
+			$type  = (string) ( $f['type'] ?? '' );
+			$fields[] = $this->field( $id, $label, $type, $f['value'] ?? '' );
+			foreach ( array( 'first', 'middle', 'last' ) as $part ) {
+				if ( isset( $f[ $part ] ) && '' !== $f[ $part ] ) {
+					$fields[] = $this->field( $id . '.' . $part, $label . ' ' . $part, $type, $f[ $part ] );
+				}
+			}
+		}
+		return $this->normalised( $fields, (string) ( $form_data['id'] ?? '' ), (string) ( $form_data['settings']['form_title'] ?? 'WPForms' ) );
+	}
+
+	/** Contact Form 7: posted data keyed by tag name; types from the form's tags. */
+	public function normalise_cf7( $contact_form, $submission ): ?array {
+		if ( ! is_object( $contact_form ) || ! is_object( $submission ) || ! method_exists( $submission, 'get_posted_data' ) ) {
+			return null;
+		}
+		$types = array();
+		if ( method_exists( $contact_form, 'scan_form_tags' ) ) {
+			foreach ( (array) $contact_form->scan_form_tags() as $tag ) {
+				if ( is_object( $tag ) && ! empty( $tag->name ) ) {
+					$types[ $tag->name ] = (string) ( $tag->basetype ?? ( $tag->type ?? '' ) );
+				}
+			}
+		}
+		$fields = array();
+		foreach ( (array) $submission->get_posted_data() as $key => $value ) {
+			$fields[] = $this->field( (string) $key, (string) $key, $types[ $key ] ?? '', $value );
+		}
+		$id    = method_exists( $contact_form, 'id' ) ? (string) $contact_form->id() : '';
+		$title = method_exists( $contact_form, 'title' ) ? (string) $contact_form->title() : 'Contact Form 7';
+		return $this->normalised( $fields, $id, $title );
+	}
+
+	/** Fluent Forms: submitted data keyed by field name, definitions on the form object. */
+	public function normalise_fluentforms( array $form_data, $form ): ?array {
+		$meta   = $this->fluent_field_map( $form );
+		$fields = array();
+		foreach ( $form_data as $key => $value ) {
 			$key = (string) $key;
 			if ( is_array( $value ) ) {
 				foreach ( $value as $sub => $sub_value ) {
@@ -276,7 +297,140 @@ class PPT_Leads {
 		}
 		$form_id = is_object( $form ) ? (string) ( $form->id ?? '' ) : '';
 		$title   = is_object( $form ) && ! empty( $form->title ) ? (string) $form->title : 'Fluent Form ' . $form_id;
-		$this->handle_submission( 'fluentforms', $form_id, $title, $fields );
+		return $this->normalised( $fields, $form_id, $title );
+	}
+
+	/** Formidable, after the entry is saved. */
+	public function normalise_formidable_entry( int $entry_id, string $form_id ): ?array {
+		if ( ! class_exists( 'FrmEntryMeta' ) || ! class_exists( 'FrmField' ) ) {
+			return null;
+		}
+		$fields = array();
+		foreach ( (array) FrmEntryMeta::get_entry_meta_array( $entry_id ) as $field_id => $value ) {
+			$field = FrmField::getOne( $field_id );
+			if ( $field ) {
+				$fields[] = $this->field( (string) $field_id, (string) ( $field->name ?? '' ), (string) ( $field->type ?? '' ), $value );
+			}
+		}
+		return $this->normalised( $fields, $form_id, 'Formidable Form ' . $form_id );
+	}
+
+	/** Formidable, during validation: $values['item_meta'] keyed by field id. */
+	public function normalise_formidable_values( array $values ): ?array {
+		if ( ! class_exists( 'FrmField' ) || empty( $values['item_meta'] ) || ! is_array( $values['item_meta'] ) ) {
+			return null;
+		}
+		$fields = array();
+		foreach ( $values['item_meta'] as $field_id => $value ) {
+			$field = is_numeric( $field_id ) ? FrmField::getOne( $field_id ) : null;
+			$fields[] = $this->field( (string) $field_id, (string) ( $field->name ?? '' ), (string) ( $field->type ?? '' ), $value );
+		}
+		$form_id = (string) ( $values['form_id'] ?? '' );
+		return $this->normalised( $fields, $form_id, 'Formidable Form ' . $form_id );
+	}
+
+	/** Elementor Pro: Form_Record with fields carrying title (label), type and value. */
+	public function normalise_elementor( $record ): ?array {
+		if ( ! is_object( $record ) || ! method_exists( $record, 'get' ) ) {
+			return null;
+		}
+		$raw = $record->get( 'fields' );
+		if ( ! is_array( $raw ) ) {
+			return null;
+		}
+		$fields = array();
+		foreach ( $raw as $field_id => $f ) {
+			$fields[] = $this->field(
+				(string) $field_id,
+				is_array( $f ) ? (string) ( $f['title'] ?? '' ) : '',
+				is_array( $f ) ? (string) ( $f['type'] ?? '' ) : '',
+				is_array( $f ) ? ( $f['value'] ?? '' ) : $f
+			);
+		}
+		$settings = $record->get( 'form_settings' );
+		$settings = is_array( $settings ) ? $settings : array();
+		$title    = (string) ( $settings['form_name'] ?? '' );
+		$form_id  = (string) ( $settings['id'] ?? ( $settings['form_id'] ?? '' ) );
+		return $this->normalised( $fields, $form_id ?: $title, $title ?: 'Elementor Form' );
+	}
+
+	/** Ninja Forms, after submission: fields carry key / label / type / value. */
+	public function normalise_ninja( array $form_data ): ?array {
+		$fields = array();
+		foreach ( (array) ( $form_data['fields'] ?? array() ) as $f ) {
+			if ( ! is_array( $f ) ) {
+				continue;
+			}
+			$fields[] = $this->field( (string) ( $f['key'] ?? ( $f['id'] ?? '' ) ), (string) ( $f['label'] ?? '' ), (string) ( $f['type'] ?? '' ), $f['value'] ?? '' );
+		}
+		$form_id = (string) ( $form_data['form_id'] ?? '' );
+		return $this->normalised( $fields, $form_id, 'Ninja Form ' . $form_id );
+	}
+
+	/**
+	 * Ninja Forms, during validation (ninja_forms_submit_data): fields carry
+	 * only id and value, so labels/types are looked up on the form model.
+	 */
+	public function normalise_ninja_submit_data( array $form_data ): ?array {
+		$form_id = (string) ( $form_data['id'] ?? ( $form_data['form_id'] ?? '' ) );
+		$fields  = array();
+		foreach ( (array) ( $form_data['fields'] ?? array() ) as $fid => $f ) {
+			if ( ! is_array( $f ) ) {
+				continue;
+			}
+			$id    = (string) ( $f['id'] ?? $fid );
+			$label = (string) ( $f['label'] ?? '' );
+			$type  = (string) ( $f['type'] ?? '' );
+			if ( ( '' === $label || '' === $type ) && function_exists( 'Ninja_Forms' ) && is_numeric( $id ) ) {
+				try {
+					$model = Ninja_Forms()->form( $form_id )->get_field( (int) $id );
+					if ( $model && method_exists( $model, 'get_setting' ) ) {
+						$label = $label ?: (string) $model->get_setting( 'label' );
+						$type  = $type ?: (string) $model->get_setting( 'type' );
+						$key   = (string) $model->get_setting( 'key' );
+						$id    = $key ?: $id;
+					}
+				} catch ( \Throwable $e ) {
+					// Fall through with what we have.
+				}
+			}
+			$fields[] = $this->field( $id, $label, $type, $f['value'] ?? '' );
+		}
+		return $this->normalised( $fields, $form_id, 'Ninja Form ' . $form_id );
+	}
+
+	/**
+	 * Bricks native form (Bricks\Integrations\Form\Init): values keyed
+	 * "form-field-{id}", labels/types in the element's settings. Bricks forms
+	 * have no name, so the title is the page the form sits on.
+	 */
+	public function normalise_bricks( $form ): ?array {
+		if ( ! is_object( $form ) || ! method_exists( $form, 'get_fields' ) || ! method_exists( $form, 'get_settings' ) ) {
+			return null;
+		}
+		$raw      = (array) $form->get_fields();
+		$settings = (array) $form->get_settings();
+		$map      = array();
+		foreach ( (array) ( $settings['fields'] ?? array() ) as $def ) {
+			if ( is_array( $def ) && isset( $def['id'] ) ) {
+				$map[ (string) $def['id'] ] = array( 'label' => (string) ( $def['label'] ?? ( $def['placeholder'] ?? '' ) ), 'type' => (string) ( $def['type'] ?? '' ) );
+			}
+		}
+		$fields = array();
+		foreach ( $raw as $key => $value ) {
+			$key = (string) $key;
+			if ( ! str_starts_with( $key, 'form-field-' ) ) {
+				continue;
+			}
+			$id       = substr( $key, 11 );
+			$info     = $map[ $id ] ?? array();
+			$fields[] = $this->field( $id, $info['label'] ?? '', $info['type'] ?? '', $value );
+		}
+		$form_id = method_exists( $form, 'get_id' ) ? (string) $form->get_id() : '';
+		$post_id = method_exists( $form, 'get_post_id' ) ? (int) $form->get_post_id() : 0;
+		$page    = $post_id ? (string) get_the_title( $post_id ) : '';
+		$title   = $page ? sprintf( 'Bricks Form (%s)', $page ) : 'Bricks Form ' . $form_id;
+		return $this->normalised( $fields, $form_id, $title );
 	}
 
 	/**
@@ -374,16 +528,54 @@ class PPT_Leads {
 
 		// A submission with neither an email nor a phone number is not a lead.
 		if ( empty( $contact['email'] ) && empty( $contact['phone'] ) ) {
-			$this->log( sprintf( 'Skipped %s form %s — no email or phone found.', $plugin, $form_id ) );
+			$this->log( sprintf( 'Skipped %s form %s: no email or phone found.', $plugin, $form_id ) );
 			return;
+		}
+
+		// Fallback spam check: anything the validation hooks did not reject (a
+		// plugin without a usable hook, or a form the plugin delivered anyway)
+		// is still flagged for the dashboard.
+		if ( empty( $extra['isSpam'] ) && class_exists( 'PPT_Spam' ) ) {
+			$spam = PPT_Spam::get_instance();
+			if ( $spam->is_enabled() ) {
+				$hit = $spam->evaluate( $fields );
+				if ( $hit ) {
+					$extra['isSpam']     = true;
+					$extra['spamReason'] = 'blocklist';
+					$extra['spamRule']   = $hit['type'] . ':' . $hit['rule'];
+					$this->log( sprintf( 'Flagged %s form %s as spam (%s).', $plugin, $form_id, $extra['spamRule'] ) );
+				}
+			}
 		}
 
 		$payload = $this->build_payload( $contact, $plugin, $form_id, $form_title, $extra );
 		$result  = $this->dispatch( $payload );
 
-		if ( $result['ok'] ) {
+		// Spam never counts as a GA4 lead.
+		if ( $result['ok'] && empty( $extra['isSpam'] ) ) {
 			$this->set_last_lead_cookie( (string) ( $result['lead_id'] ?: '1' ) );
 		}
+	}
+
+	/**
+	 * Called by PPT_Spam when a validation hook rejects a submission. The lead
+	 * still goes to the dashboard, marked as blocked spam, so the rule that
+	 * caught it can be reviewed and a false positive recovered.
+	 *
+	 * @param array $hit { type, rule, field }
+	 */
+	public function report_blocked( string $plugin, string $form_id, string $form_title, array $fields, array $hit ): void {
+		$this->record_blocked( $hit );
+		$this->log( sprintf( 'Blocked %s form %s: %s "%s" in %s.', $plugin, $form_id, $hit['type'], $hit['rule'], $hit['field'] ?: 'a field' ) );
+		if ( ! $this->is_configured() ) {
+			return;
+		}
+		$this->handle_submission( $plugin, $form_id, $form_title, $fields, array(
+			'isSpam'     => true,
+			'spamReason' => 'blocklist',
+			'spamRule'   => $hit['type'] . ':' . $hit['rule'],
+			'blocked'    => true,
+		) );
 	}
 
 	/**
@@ -537,8 +729,8 @@ class PPT_Leads {
 		$ip    = (string) apply_filters( 'ppt_client_ip', $_SERVER['REMOTE_ADDR'] ?? '' ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
 		$ua    = isset( $_SERVER['HTTP_USER_AGENT'] ) ? substr( sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ), 0, 255 ) : '';
 
+		// The API key travels only in the Authorization header (since 1.6.0).
 		$payload = array(
-			'apiKey'             => $this->api_key,
 			'name'               => $contact['name'] ?? null,
 			'email'              => $email ?: null,
 			'phone'              => $phone ?: null,
@@ -575,6 +767,9 @@ class PPT_Leads {
 			'formPlugin'         => $plugin,
 			'isSpam'             => array_key_exists( 'isSpam', $extra ) ? (bool) $extra['isSpam'] : null,
 			'spamScore'          => $extra['spamScore'] ?? null,
+			'spamReason'         => isset( $extra['spamReason'] ) ? substr( sanitize_text_field( (string) $extra['spamReason'] ), 0, 40 ) : null,
+			'spamRule'           => isset( $extra['spamRule'] ) ? substr( sanitize_text_field( (string) $extra['spamRule'] ), 0, 220 ) : null,
+			'blocked'            => ! empty( $extra['blocked'] ) ? true : null,
 
 			'siteUrl'            => home_url(),
 			'pluginVersion'      => PPT_VERSION,
@@ -832,7 +1027,18 @@ class PPT_Leads {
 			'last_error_at' => 0,
 			'total_sent'    => 0,
 			'total_failed'  => 0,
+			'total_blocked' => 0,
+			'last_blocked_at'   => 0,
+			'last_blocked_rule' => '',
 		), is_array( $status ) ? $status : array() );
+	}
+
+	private function record_blocked( array $hit ): void {
+		$s = $this->get_status();
+		$s['total_blocked']     = (int) $s['total_blocked'] + 1;
+		$s['last_blocked_at']   = time();
+		$s['last_blocked_rule'] = substr( $hit['type'] . ':' . $hit['rule'], 0, 220 );
+		update_option( PPT_STATUS_KEY, $s, false );
 	}
 
 	private function record_success( string $lead_id ): void {
@@ -885,6 +1091,7 @@ class PPT_Leads {
 			'formidable'   => array( 'label' => 'Formidable Forms', 'active' => class_exists( 'FrmAppHelper' ) ),
 			'ninja'        => array( 'label' => 'Ninja Forms', 'active' => class_exists( 'Ninja_Forms' ) ),
 			'elementor'    => array( 'label' => 'Elementor Pro Forms', 'active' => defined( 'ELEMENTOR_PRO_VERSION' ) ),
+			'bricks'       => array( 'label' => 'Bricks Forms', 'active' => defined( 'BRICKS_VERSION' ) || class_exists( 'Bricks\\Integrations\\Form\\Init' ) ),
 		);
 	}
 

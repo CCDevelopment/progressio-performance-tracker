@@ -13,6 +13,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { waitUntil as vercelWaitUntil } from '@vercel/functions';
 import { COOKIE_LEAD, forLead, parseCookies, siteUrlForPath, submittingPageUrl } from './attribution.js';
 import { extractContact, normaliseFields } from './contact.js';
+import { evaluateSpam, resolveSpamRules } from './spam.js';
 import { sanitizeText } from './sanitize.js';
 import { DEFAULT_ENDPOINT, VERSION } from './version.js';
 
@@ -77,7 +78,7 @@ const isEmpty = (v) => v === null || v === undefined || v === '' || (typeof v ==
  * deliberate difference is that the API key travels only in the
  * Authorization header, never in the body.
  */
-export function buildPayload({ contact, attribution, siteUrl, pageUrl, ip, userAgent, hashSalt, formId, formTitle, formPlugin, isSpam, spamScore, test }) {
+export function buildPayload({ contact, attribution, siteUrl, pageUrl, ip, userAgent, hashSalt, formId, formTitle, formPlugin, isSpam, spamScore, spamReason, spamRule, blocked, test }) {
   const { first, last } = attribution;
 
   // Top-level source/medium describe the "last non-direct" touch: the
@@ -124,6 +125,9 @@ export function buildPayload({ contact, attribution, siteUrl, pageUrl, ip, userA
     formPlugin,
     isSpam: typeof isSpam === 'boolean' ? isSpam : null,
     spamScore: spamScore ?? null,
+    spamReason: spamReason ? sanitizeText(spamReason).slice(0, 40) : null,
+    spamRule: spamRule ? sanitizeText(spamRule).slice(0, 220) : null,
+    blocked: blocked === true ? true : null,
 
     siteUrl: siteUrl || null,
     pluginVersion: VERSION,
@@ -271,12 +275,25 @@ export async function captureLead(request, fields, options = {}) {
       return { ok: false, skipped: true, queued: false, leadId: '', error: 'Leads API not configured', cookie: null };
     }
 
-    const contact = extractContact(normaliseFields(fields), options.fieldMap);
+    const normalised = normaliseFields(fields);
+    const contact = extractContact(normalised, options.fieldMap);
+
+    // Spam check first, so the verdict is there even for a submission that is
+    // not a lead. The site decides what to do with `spam`; we only flag.
+    let spam = null;
+    if (options.isSpam !== true) {
+      const resolved = await resolveSpamRules(options, { apiKey, endpoint, fetch: options.fetch });
+      if (resolved) {
+        if (resolved.error) log('warn', `Global spam list unavailable (${resolved.error}); site-level rules still apply.`);
+        spam = evaluateSpam(normalised, resolved.rules);
+        if (spam) log('info', `Spam: ${spam.type} rule "${spam.rule}" matched in ${spam.field || 'a field'}.`);
+      }
+    }
 
     // A submission with neither an email nor a phone number is not a lead.
     if (!contact.email && !contact.phone) {
       log('info', `Skipped form ${options.formId ?? ''}: no email or phone found.`);
-      return { ok: false, skipped: true, queued: false, leadId: '', error: 'No email or phone', cookie: null };
+      return { ok: false, skipped: true, queued: false, leadId: '', error: 'No email or phone', cookie: null, spam, blocked: !!spam };
     }
 
     const payload = buildPayload({
@@ -290,8 +307,13 @@ export async function captureLead(request, fields, options = {}) {
       formId: options.formId,
       formTitle: options.formTitle,
       formPlugin: options.formPlugin ?? 'node',
-      isSpam: options.isSpam,
+      isSpam: spam ? true : options.isSpam,
       spamScore: options.spamScore,
+      spamReason: spam ? 'blocklist' : options.spamReason,
+      spamRule: spam ? `${spam.type}:${spam.rule}` : options.spamRule,
+      // The site is expected to reject a submission we flag, so the dashboard
+      // sees it as blocked, exactly like the WordPress plugin's quarantine.
+      blocked: spam ? options.spamBlocks !== false : undefined,
       test: options.test,
     });
 
@@ -299,7 +321,9 @@ export async function captureLead(request, fields, options = {}) {
     const result = await sendLead(payload, sendOptions);
 
     if (result.ok) {
-      return { ok: true, skipped: false, queued: false, leadId: result.leadId, error: '', cookie: leadCookie(result.leadId, siteUrl.startsWith('https:')) };
+      // Spam never counts as a GA4 lead, so no generate_lead cookie for it.
+      const cookie = spam ? null : leadCookie(result.leadId, siteUrl.startsWith('https:'));
+      return { ok: true, skipped: false, queued: false, leadId: result.leadId, error: '', cookie, spam, blocked: !!spam };
     }
 
     log('warn', `Lead send failed: ${result.error}`);
@@ -314,14 +338,14 @@ export async function captureLead(request, fields, options = {}) {
         // Not on Vercel and no waitUntil given: the promise still runs on a
         // long-lived server.
       }
-      return { ok: false, skipped: false, queued: true, leadId: '', error: result.error, cookie: null, retrying: job };
+      return { ok: false, skipped: false, queued: true, leadId: '', error: result.error, cookie: null, spam, blocked: !!spam, retrying: job };
     }
 
     if (options.onFailure) await Promise.resolve(options.onFailure(payload, result)).catch(() => {});
-    return { ok: false, skipped: false, queued: false, leadId: '', error: result.error, cookie: null };
+    return { ok: false, skipped: false, queued: false, leadId: '', error: result.error, cookie: null, spam, blocked: !!spam };
   } catch (e) {
     log('error', `Lead capture failed: ${e?.message || e}`);
-    return { ok: false, skipped: false, queued: false, leadId: '', error: String(e?.message || e), cookie: null };
+    return { ok: false, skipped: false, queued: false, leadId: '', error: String(e?.message || e), cookie: null, spam: null, blocked: false };
   }
 }
 
@@ -332,4 +356,22 @@ function makeLogger(options) {
     if (level === 'info' && !options.debug) return;
     (logger[level] ?? logger.log)?.call(logger, `[ppt] ${message}`);
   };
+}
+
+/**
+ * Spam verdict on its own, for sites that want to reject the form before
+ * doing anything else (sending the client's email, storing the entry). Same
+ * rules and the same global list as captureLead(); never throws.
+ *
+ * @returns {Promise<{ type: string, rule: string, field: string } | null>}
+ */
+export async function checkSpam(fields, options = {}) {
+  try {
+    const apiKey = options.apiKey ?? process.env.PPT_LEADS_API_KEY ?? '';
+    const endpoint = options.endpoint ?? process.env.PPT_LEADS_ENDPOINT ?? DEFAULT_ENDPOINT;
+    const resolved = await resolveSpamRules({ spamFilter: true, ...options }, { apiKey, endpoint, fetch: options.fetch });
+    return resolved ? evaluateSpam(normaliseFields(fields), resolved.rules) : null;
+  } catch {
+    return null;
+  }
 }

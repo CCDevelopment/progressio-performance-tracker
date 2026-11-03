@@ -59,6 +59,19 @@ function is_wp_error( $t ) { return false; }
 function wp_remote_retrieve_response_code( $r ) { return $r['response']['code']; }
 function wp_remote_retrieve_response_message( $r ) { return $r['response']['message']; }
 function wp_remote_retrieve_body( $r ) { return $r['body']; }
+function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
+function esc_textarea( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
+function get_the_title( $id ) { return 'Contact Us'; }
+function wp_schedule_event( $t, $r, $h ) { $GLOBALS['scheduled_events'][] = $h; return true; }
+function wp_safe_remote_get( $url, $args ) {
+	$GLOBALS['http_get'][] = array( 'url' => $url, 'args' => $args );
+	$r = $GLOBALS['http_get_response'] ?? array( 'code' => 200, 'body' => '{}' );
+	return array( 'response' => array( 'code' => $r['code'], 'message' => 'x' ), 'body' => $r['body'] );
+}
+/** The stub apply_filters() ignores registered callbacks; tests call them through this. */
+function run_filter( $h, ...$args ) { foreach ( $GLOBALS['filters'][ $h ] ?? array() as $cb ) { $args[0] = call_user_func_array( $cb, $args ); } return $args[0]; }
+define( 'HOUR_IN_SECONDS', 3600 );
+define( 'MINUTE_IN_SECONDS', 60 );
 function human_time_diff( $t ) { return '1 min'; }
 
 $root = dirname( __DIR__, 1 );
@@ -242,6 +255,121 @@ $GLOBALS['http'] = array();
 $r = $leads->send_test( 'me@example.com' );
 $p = json_decode( $GLOBALS['http'][0]['args']['body'], true );
 ok( $r['ok'] && true === $p['test'] && 'me@example.com' === $p['email'], 'test lead flagged' );
+
+
+// ── Spam filter: parsing ────────────────────────────────────────────────────
+ok( array( 'phrases', 'local seo' ) === PPT_Spam::classify_line( '  Local   SEO ' ), 'bare text → phrase, lower-cased, whitespace collapsed' );
+ok( array( 'domains', 'spammer.example' ) === PPT_Spam::classify_line( 'https://www.Spammer.example/path' ), 'URL → bare domain' );
+ok( array( 'emails', 'joe@spammer.example' ) === PPT_Spam::classify_line( 'Joe@Spammer.example' ), 'email → emails' );
+ok( array( 'phones', '8054002077' ) === PPT_Spam::classify_line( '+1 (805) 400-2077' ), 'formatted phone → digits, leading 1 stripped' );
+ok( array( 'phones', '7077060205' ) === PPT_Spam::classify_line( 'phone: 707.706.0205' ), 'phone: prefix' );
+ok( array( 'phrases', 'example.com' ) === PPT_Spam::classify_line( 'phrase: example.com' ), 'phrase: prefix forces type' );
+ok( array( '', '' ) === PPT_Spam::classify_line( '# comment' ) && array( '', '' ) === PPT_Spam::classify_line( '' ), 'comments and blanks ignored' );
+$parsed = PPT_Spam::parse_lines( "seo services\nseo services\nspammer.example\n\n555\nname@x.io" );
+ok( array( 'seo services' ) === $parsed['phrases'] && array( 'spammer.example' ) === $parsed['domains'] && array( 'name@x.io' ) === $parsed['emails'] && array( '555' ) === $parsed['phrases'] + array() ? false : true, 'parse_lines dedupes and types; "555" too short for a phone → phrase' );
+ok( in_array( '555', $parsed['phrases'], true ) && array() === $parsed['phones'], 'short digit string is not a phone rule' );
+$fa = PPT_Spam::from_array( array( 'data' => array( 'updatedAt' => 'x', 'keywords' => array( 'Guest Post', array( 'value' => 'Backlinks' ) ), 'domains' => 'a.example, b.example', 'phones' => array( '+1 805 400 2077' ) ) ) );
+ok( array( 'guest post', 'backlinks' ) === $fa['phrases'] && array( 'a.example', 'b.example' ) === $fa['domains'] && array( '8054002077' ) === $fa['phones'], 'from_array: wrappers, aliases, objects, comma lists: ' . json_encode( $fa ) );
+
+// ── Spam filter: matching ───────────────────────────────────────────────────
+$R = array( 'phrases' => array( 'aeo', 'no-obligation audit', 'seo services' ), 'domains' => array( 'spammer.example' ), 'emails' => array( 'joe@gmail.example' ), 'phones' => array( '8054002077' ) );
+$m = fn( $v ) => PPT_Spam::match_value( $v, $R );
+ok( null === $m( 'We run an aeon-long campaign' ), 'phrase is whole-word: "aeo" does not match "aeon"' );
+ok( 'phrases' === ( $m( 'Ask about AEO!' )['type'] ?? '' ), 'phrase matches case-insensitively at word boundary' );
+ok( 'no-obligation audit' === ( $m( 'A free, no obligation   audit' )['rule'] ?? '' ), 'hyphen/space flexible phrase' );
+ok( 'domains' === ( $m( 'reach me at bob@mail.spammer.example today' )['type'] ?? '' ), 'subdomain in email address matches domain rule' );
+ok( 'domains' === ( $m( 'see https://spammer.example/offer' )['type'] ?? '' ), 'domain inside a URL matches' );
+ok( null === $m( 'notspammer.example is unrelated' ), 'domain rule does not match a longer domain' );
+ok( 'emails' === ( $m( 'Joe@Gmail.example' )['type'] ?? '' ) && null === $m( 'notjoe@gmail.example' ), 'email rule exact, case-insensitive' );
+ok( 'phones' === ( $m( 'Call (805) 400-2077 now' )['type'] ?? '' ) && 'phones' === ( $m( '+1.805.400.2077' )['type'] ?? '' ), 'phone matches across formats and inside text' );
+ok( null === $m( 'Call 805 400 2078' ) && null === $m( 'Order #80540020770' ), 'near-miss numbers do not match' );
+ok( null === $m( 'Hi, I need a quote for my kitchen' ), 'clean message passes' );
+
+// ── Spam filter: effective rules, refresh, settings ─────────────────────────
+$GLOBALS['options']['ppt_settings'] = array_merge( ppt_default_options(), array(
+	'leads_api_key' => 'test-key-abcdef',
+	'spam_filter'   => '1',
+	'spam_add'      => "cheap backlinks\nlocal.spammer.example",
+	'spam_allow'    => "seo services\n8054002077",
+) );
+$GLOBALS['options']['ppt_spam_rules'] = array( 'rules' => array( 'phrases' => array( 'seo services', 'guest post' ), 'phones' => array( '8054002077' ) ), 'fetched_at' => time() - 100 );
+foreach ( array( 'PPT_Settings', 'PPT_Leads', 'PPT_Spam' ) as $cls ) { $r = new ReflectionProperty( $cls, 'instance' ); $r->setAccessible( true ); $r->setValue( null, null ); }
+$GLOBALS['filters'] = array(); $GLOBALS['actions'] = array();
+PPT_Settings::get_instance(); $leads = PPT_Leads::get_instance(); $spam = PPT_Spam::get_instance();
+$eff = $spam->effective_rules();
+ok( array( 'guest post', 'cheap backlinks' ) === $eff['phrases'] && array( 'local.spammer.example' ) === $eff['domains'] && array() === $eff['phones'], 'effective = global + additions - exceptions: ' . json_encode( $eff ) );
+ok( ! empty( $GLOBALS['scheduled_events'] ) && in_array( PPT_SPAM_CRON_HOOK, $GLOBALS['scheduled_events'], true ), 'refresh cron scheduled when enabled' );
+ok( 'https://dashboard.progressiodev.com/api/spam-rules' === $spam->rules_endpoint(), 'rules endpoint derived from leads endpoint: ' . $spam->rules_endpoint() );
+
+$GLOBALS['http_get_response'] = array( 'code' => 200, 'body' => '{"updatedAt":"2026-11-01T00:00:00Z","phrases":["Rank Higher"],"domains":["new.example"]}' );
+$r = $spam->refresh();
+ok( $r['ok'] && 2 === $r['count'] && 'Bearer test-key-abcdef' === $GLOBALS['http_get'][0]['args']['headers']['Authorization'], 'refresh fetches with bearer and stores: ' . json_encode( $r ) );
+ok( '2026-11-01T00:00:00Z' === $spam->state()['updated_at'] && array( 'rank higher' ) === $spam->global_rules()['phrases'], 'refreshed state recorded' );
+$GLOBALS['http_get_response'] = array( 'code' => 404, 'body' => 'not found' );
+$r = $spam->refresh();
+ok( ! $r['ok'] && 2 === $r['count'] && array( 'rank higher' ) === $spam->global_rules()['phrases'] && str_starts_with( $spam->state()['error'], 'HTTP 404' ), 'failed refresh keeps last good copy and records the error' );
+ok( 'rank higher' === ( $spam->evaluate( array( $f( '1', 'Message', 'textarea', 'We help you rank higher' ) ) )['rule'] ?? '' ), 'evaluate uses the refreshed list' );
+
+$clean = $settings->sanitize_options( array( 'spam_filter' => '1', 'spam_add' => "  <b>Guest Post</b>  \n\n# note\nspammer.example\n" . str_repeat( 'x', 300 ), 'spam_allow' => 'seo services' ) );
+ok( '1' === $clean['spam_filter'] && "Guest Post\nspammer.example\n" . str_repeat( 'x', 200 ) === $clean['spam_add'] && 'seo services' === $clean['spam_allow'], 'spam settings sanitised: ' . json_encode( $clean['spam_add'] ) );
+ok( '0' === $settings->sanitize_options( array() )['spam_filter'], 'unchecked spam filter saves as 0' );
+
+// ── Spam filter: blocking hooks report a flagged lead and set no cookie ─────
+$GLOBALS['http'] = array(); $GLOBALS['http_response'] = array( 'code' => 201, 'body' => '{"id":"spam_1"}' );
+class SpamCF7Submission { public function get_posted_data() { return array( 'your-name' => 'Spammy', 'your-email' => 'spam@gmail.example', 'your-message' => 'We can help you Rank Higher on Google' ); } public function get_contact_form() { return new FakeCF7(); } }
+$verdict = run_filter( 'wpcf7_spam', false, new SpamCF7Submission() );
+ok( true === $verdict, 'CF7: matching submission marked as spam' );
+$p = json_decode( $GLOBALS['http'][0]['args']['body'], true );
+ok( 1 === count( $GLOBALS['http'] ) && true === $p['isSpam'] && true === $p['blocked'] && 'blocklist' === $p['spamReason'] && 'phrases:rank higher' === $p['spamRule'] && 'spam@gmail.example' === $p['email'], 'blocked lead reported to the dashboard with the rule: ' . json_encode( array( $p['isSpam'] ?? null, $p['blocked'] ?? null, $p['spamRule'] ?? null ) ) );
+ok( ! array_key_exists( 'apiKey', $p ), 'apiKey no longer sent in the body' );
+ok( 1 === $leads->get_status()['total_blocked'] && 'phrases:rank higher' === $leads->get_status()['last_blocked_rule'], 'blocked counter recorded' );
+class CleanCF7Submission { public function get_posted_data() { return array( 'your-name' => 'Real', 'your-email' => 'real@example.com', 'your-message' => 'Quote please' ); } public function get_contact_form() { return new FakeCF7(); } }
+ok( false === run_filter( 'wpcf7_spam', false, new CleanCF7Submission() ) && 1 === count( $GLOBALS['http'] ), 'CF7: clean submission passes, nothing sent at validation' );
+
+// Bricks: validate filter blocks; response filter captures clean leads.
+class FakeBricksForm {
+	public $fields; public function __construct( $f ) { $this->fields = $f; }
+	public function get_fields() { return $this->fields; }
+	public function get_settings() { return array( 'fields' => array( array( 'id' => 'a1b2', 'label' => 'Name', 'type' => 'text' ), array( 'id' => 'c3d4', 'label' => 'Email', 'type' => 'email' ), array( 'id' => 'e5f6', 'label' => 'Message', 'type' => 'textarea' ) ) ); }
+	public function get_id() { return 'brxform1'; } public function get_post_id() { return 42; }
+}
+$GLOBALS['http'] = array();
+$errors = run_filter( 'bricks/form/validate', array(), new FakeBricksForm( array( 'form-field-a1b2' => 'Spam', 'form-field-c3d4' => 'x@local.spammer.example', 'form-field-e5f6' => 'hi', 'nonce' => 'abc' ) ) );
+ok( array( 'Sorry, this message could not be sent.' ) === $errors, 'Bricks: validate filter returns the block message' );
+$p = json_decode( $GLOBALS['http'][0]['args']['body'], true );
+ok( 'bricks' === $p['formPlugin'] && 'brxform1' === $p['formId'] && 'Bricks Form (Contact Us)' === $p['formTitle'] && 'domains:local.spammer.example' === $p['spamRule'], 'Bricks: blocked lead carries form meta: ' . json_encode( array( $p['formPlugin'], $p['formId'], $p['formTitle'], $p['spamRule'] ) ) );
+ok( array() === run_filter( 'bricks/form/validate', array(), new FakeBricksForm( array( 'form-field-a1b2' => 'Jane', 'form-field-c3d4' => 'jane@example.com', 'form-field-e5f6' => 'Quote?' ) ) ), 'Bricks: clean form validates' );
+$GLOBALS['http'] = array();
+$resp = run_filter( 'bricks/form/response', array( 'type' => 'success' ), new FakeBricksForm( array( 'form-field-a1b2' => 'Jane', 'form-field-c3d4' => 'jane@example.com', 'form-field-e5f6' => 'Quote?' ) ) );
+$p = json_decode( $GLOBALS['http'][0]['args']['body'], true );
+ok( array( 'type' => 'success' ) === $resp && 'jane@example.com' === $p['email'] && 'Jane' === $p['name'] && 'Quote?' === $p['message'] && ! array_key_exists( 'isSpam', $p ), 'Bricks: success response captures the lead, response untouched' );
+
+// WS Form: form-level validate hook.
+$GLOBALS['http'] = array();
+$wsf = (object) array( 'form_id' => 3, 'form_object' => (object) array( 'id' => 3, 'label' => 'Contact', 'groups' => array( (object) array( 'sections' => array( (object) array( 'fields' => array( (object) array( 'id' => 1, 'label' => 'Email', 'type' => 'email' ), (object) array( 'id' => 2, 'label' => 'Phone', 'type' => 'tel' ) ) ) ) ) ) ), 'meta' => array( 'field_1' => array( 'value' => 'a@b.example' ), 'field_2' => array( 'value' => '+1 805 400 2077' ) ) );
+ok( array() === run_filter( 'wsf_submit_validate', array(), 'submit', $wsf ), 'WS Form: exempted phone (site exception) passes' );
+$wsf->meta['field_2']['value'] = 'rank higher';
+ok( array( 'Sorry, this message could not be sent.' ) === run_filter( 'wsf_submit_validate', array(), 'submit', $wsf ) && 'wsform' === json_decode( $GLOBALS['http'][0]['args']['body'], true )['formPlugin'], 'WS Form: blocked and reported' );
+ok( array() === run_filter( 'wsf_submit_validate', array(), 'save', $wsf ), 'WS Form: save mode never blocks' );
+
+// Fallback flag when the plugin delivered anyway (CF7 mail_sent with spam content).
+$GLOBALS['http'] = array();
+class SpammyCF7Submission { public static function get_instance() { return new self(); } public function get_posted_data() { return array( 'your-email' => 'late@example.com', 'your-message' => 'cheap backlinks for you' ); } }
+class_alias( 'SpammyCF7Submission', 'WPCF7_Submission_Spammy' );
+$h = $leads->normalise_cf7( new FakeCF7(), new SpammyCF7Submission() );
+$rm = new ReflectionMethod( 'PPT_Leads', 'handle_submission' ); $rm->setAccessible( true );
+$rm->invoke( $leads, 'cf7', '5', 'Contact', $h['fields'], array( 'isSpam' => false ) );
+$p = json_decode( $GLOBALS['http'][0]['args']['body'], true );
+ok( true === $p['isSpam'] && 'phrases:cheap backlinks' === $p['spamRule'] && ! array_key_exists( 'blocked', $p ), 'fallback flags a delivered submission without marking it blocked' );
+
+// Filter off: nothing is evaluated.
+$GLOBALS['options']['ppt_settings']['spam_filter'] = '0';
+foreach ( array( 'PPT_Settings', 'PPT_Leads', 'PPT_Spam' ) as $cls ) { $r = new ReflectionProperty( $cls, 'instance' ); $r->setAccessible( true ); $r->setValue( null, null ); }
+$GLOBALS['filters'] = array(); $GLOBALS['actions'] = array(); $GLOBALS['http'] = array();
+PPT_Settings::get_instance(); $leads = PPT_Leads::get_instance(); PPT_Spam::get_instance();
+ok( empty( $GLOBALS['filters']['bricks/form/validate'] ) && empty( $GLOBALS['filters']['wpcf7_spam'] ), 'spam filter off: no validation hooks registered' );
+$rm->invoke( $leads, 'cf7', '5', 'Contact', $h['fields'], array( 'isSpam' => false ) );
+ok( false === json_decode( $GLOBALS['http'][0]['args']['body'], true )['isSpam'], 'spam filter off: fallback does not flag' );
 
 echo "\n" . ( $fail ? "$fail FAILURE(S)" : 'ALL PASSED' ) . "\n";
 exit( $fail ? 1 : 0 );

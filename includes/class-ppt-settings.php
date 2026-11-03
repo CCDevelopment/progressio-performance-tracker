@@ -29,7 +29,7 @@ class PPT_Settings {
 
 	private const PAGE_SLUG  = 'progressio-performance-tracker';
 	private const NONCE      = 'ppt_admin';
-	private const FORM_PLUGINS = array( 'auto', 'wsform', 'gravityforms', 'wpforms', 'cf7', 'fluentforms', 'formidable', 'ninja', 'elementor', 'generic' );
+	private const FORM_PLUGINS = array( 'auto', 'wsform', 'gravityforms', 'wpforms', 'cf7', 'fluentforms', 'formidable', 'ninja', 'elementor', 'bricks', 'generic' );
 
 	/** Option key → wp-config constant that overrides it. */
 	private const CONSTANTS = array(
@@ -53,6 +53,7 @@ class PPT_Settings {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
 		add_action( 'wp_ajax_ppt_test_lead', array( $this, 'ajax_test_lead' ) );
 		add_action( 'wp_ajax_ppt_process_queue', array( $this, 'ajax_process_queue' ) );
+		add_action( 'wp_ajax_ppt_refresh_spam_rules', array( $this, 'ajax_refresh_spam_rules' ) );
 	}
 
 	private function load_options(): void {
@@ -193,6 +194,13 @@ class PPT_Settings {
 		add_settings_field( 'leads_api_key', __( 'Leads API Key', $td ), array( $this, 'field_leads_api_key' ), $page, 'ppt_section_leads' );
 		add_settings_field( 'leads_endpoint', __( 'Leads Endpoint URL', $td ), array( $this, 'field_leads_endpoint' ), $page, 'ppt_section_leads' );
 
+		// ── Spam filter ──────────────────────────────────────────────────────
+		add_settings_section( 'ppt_section_spam', __( 'Spam Filter', $td ), array( $this, 'section_spam_cb' ), $page );
+		add_settings_field( 'spam_filter', __( 'Block spam submissions', $td ), array( $this, 'field_checkbox' ), $page, 'ppt_section_spam', array( 'key' => 'spam_filter', 'label' => __( 'Reject form submissions that match the block list before the form emails anyone', $td ), 'desc' => __( 'Blocked submissions are still sent to the dashboard, marked as spam, so nothing is lost. The visitor sees "Sorry, this message could not be sent."', $td ) ) );
+		add_settings_field( 'spam_add', __( 'Also block on this site', $td ), array( $this, 'field_rule_lines' ), $page, 'ppt_section_spam', array( 'key' => 'spam_add', 'placeholder' => "cheap backlinks\nspammer.example\nname@spammer.example\n+1 555 010 0000", 'desc' => __( 'One entry per line, added to the global list for this site only. Phrases match whole words, case-insensitively, in any field. A domain matches email addresses and links on that domain and its subdomains. Phone numbers match however they are formatted. Prefix a line with phrase:, domain:, email: or phone: to force its type.', $td ) ) );
+		add_settings_field( 'spam_allow', __( 'Never block on this site', $td ), array( $this, 'field_rule_lines' ), $page, 'ppt_section_spam', array( 'key' => 'spam_allow', 'placeholder' => "seo services\nlocal seo", 'desc' => __( 'Entries from the global list to ignore here. Use this on a client that sells the services the global list treats as spam (for example an SEO or marketing agency).', $td ) ) );
+		add_settings_field( 'spam_rules', __( 'Rules in force', $td ), array( $this, 'field_spam_rules' ), $page, 'ppt_section_spam' );
+
 		// ── Field mapping ────────────────────────────────────────────────────
 		add_settings_section( 'ppt_section_map', __( 'Lead Field Mapping', $td ), array( $this, 'section_map_cb' ), $page );
 		add_settings_field( 'field_map', __( 'Mappings', $td ), array( $this, 'field_map' ), $page, 'ppt_section_map' );
@@ -222,6 +230,10 @@ class PPT_Settings {
 
 	public function section_leads_cb(): void {
 		echo '<p>' . esc_html__( 'Send visitor contact data from form submissions to the Progressio dashboard Leads Inbox. Copy the API key from the client record in the Progressio dashboard and paste it here.', 'progressio-performance-tracker' ) . '</p>';
+	}
+
+	public function section_spam_cb(): void {
+		echo '<p>' . esc_html__( 'Blocks the SEO, search-ad and AI-search pitches that reach contact forms. The global block list is maintained in the Progressio dashboard and refreshed twice a day; add or exempt entries for this site below.', 'progressio-performance-tracker' ) . '</p>';
 	}
 
 	public function section_map_cb(): void {
@@ -281,6 +293,7 @@ class PPT_Settings {
 			'formidable'   => 'Formidable Forms',
 			'ninja'        => 'Ninja Forms',
 			'elementor'    => 'Elementor Pro Forms',
+			'bricks'       => 'Bricks Forms',
 			'generic'      => __( 'Generic (HTML form submit fallback)', 'progressio-performance-tracker' ),
 		);
 	}
@@ -329,6 +342,60 @@ class PPT_Settings {
 		$this->constant_notice( 'leads_endpoint' );
 		/* translators: %s: comma-separated host list */
 		echo '<p class="description">' . sprintf( esc_html__( 'Must be HTTPS on an approved host (%s). Leave as-is unless directed otherwise.', 'progressio-performance-tracker' ), '<code>' . esc_html( implode( ', ', self::allowed_endpoint_hosts() ) ) . '</code>' ) . '</p>';
+	}
+
+	/** One-rule-per-line textarea (spam additions / exceptions). */
+	public function field_rule_lines( array $args ): void {
+		$key = (string) $args['key'];
+		$val = (string) $this->get( $key, '' );
+		echo '<textarea name="' . $this->name( $key ) . '" rows="6" class="large-text code ppt-rule-lines" placeholder="' . esc_attr( (string) ( $args['placeholder'] ?? '' ) ) . '" spellcheck="false">' . esc_textarea( $val ) . '</textarea>';
+		if ( ! empty( $args['desc'] ) ) {
+			echo '<p class="description">' . esc_html( $args['desc'] ) . '</p>';
+		}
+	}
+
+	/** Read-only view of the effective rule set, with a refresh button for the global list. */
+	public function field_spam_rules(): void {
+		$spam    = PPT_Spam::get_instance();
+		$summary = $spam->summary();
+		$rules   = $spam->effective_rules();
+		$td      = 'progressio-performance-tracker';
+		$labels  = array( 'phrases' => __( 'Phrases', $td ), 'domains' => __( 'Domains', $td ), 'emails' => __( 'Email addresses', $td ), 'phones' => __( 'Phone numbers', $td ) );
+
+		echo '<p>';
+		if ( $summary['fetched_at'] ) {
+			/* translators: 1: rule count, 2: human time */
+			echo esc_html( sprintf( __( 'Global list: %1$d rules, fetched %2$s ago.', $td ), $summary['global'], human_time_diff( $summary['fetched_at'] ) ) );
+		} else {
+			echo esc_html__( 'Global list has not been fetched yet.', $td );
+		}
+		if ( $summary['error'] && $summary['error_at'] >= $summary['fetched_at'] ) {
+			/* translators: %s: error message */
+			echo ' <span class="ppt-spam-error">' . esc_html( sprintf( __( 'Last fetch failed: %s. The previous list stays in force.', $td ), $summary['error'] ) ) . '</span>';
+		}
+		/* translators: 1: additions, 2: exceptions, 3: effective total */
+		echo ' ' . esc_html( sprintf( __( 'This site adds %1$d and exempts %2$d, so %3$d rules are enforced.', $td ), $summary['additions'], $summary['exceptions'], $summary['effective'] ) );
+		echo '</p>';
+		if ( $summary['endpoint'] && (string) $this->get( 'leads_api_key' ) ) {
+			echo '<p><button type="button" class="button" id="ppt-refresh-spam">' . esc_html__( 'Refresh global list now', $td ) . '</button> <span id="ppt-spam-result" role="status" aria-live="polite"></span></p>';
+		} else {
+			echo '<p class="description">' . esc_html__( 'The global list needs a Leads API key. Site-level entries work without one.', $td ) . '</p>';
+		}
+		echo '<details class="ppt-spam-rules"><summary>' . esc_html__( 'Show every rule in force', $td ) . '</summary>';
+		foreach ( $labels as $type => $label ) {
+			if ( empty( $rules[ $type ] ) ) {
+				continue;
+			}
+			echo '<h4>' . esc_html( $label ) . ' <span>(' . count( $rules[ $type ] ) . ')</span></h4><ul>';
+			foreach ( $rules[ $type ] as $rule ) {
+				echo '<li><code>' . esc_html( $rule ) . '</code></li>';
+			}
+			echo '</ul>';
+		}
+		if ( 0 === $summary['effective'] ) {
+			echo '<p class="description">' . esc_html__( 'No rules yet.', $td ) . '</p>';
+		}
+		echo '</details>';
 	}
 
 	public function field_map(): void {
@@ -402,6 +469,31 @@ class PPT_Settings {
 	}
 
 	/**
+	 * Normalise a one-rule-per-line list: strip tags, drop blank and
+	 * unusable lines, cap at 500 lines of 200 characters. Lines keep their
+	 * original wording (the evaluator normalises), minus whitespace noise.
+	 */
+	public static function sanitize_rule_lines( string $text ): string {
+		$out = array();
+		foreach ( preg_split( '/\r\n|\r|\n/', $text ) as $line ) {
+			$line = trim( preg_replace( '/\s+/u', ' ', wp_strip_all_tags( (string) $line ) ) );
+			if ( '' === $line ) {
+				continue;
+			}
+			$line = substr( $line, 0, 200 );
+			[ $type ] = PPT_Spam::classify_line( $line );
+			if ( '' === $type ) {
+				continue;
+			}
+			$out[] = $line;
+			if ( count( $out ) >= 500 ) {
+				break;
+			}
+		}
+		return implode( "\n", array_unique( $out ) );
+	}
+
+	/**
 	 * Sanitize all options before saving.
 	 *
 	 * @param mixed $input Raw POST data (an array from the form; anything else
@@ -423,8 +515,13 @@ class PPT_Settings {
 		}
 		$clean['measurement_id'] = $mid;
 
-		foreach ( array( 'load_gtag', 'debug_mode', 'track_forms', 'track_scroll', 'track_outbound', 'track_phone', 'track_email', 'track_downloads', 'track_video' ) as $flag ) {
+		foreach ( array( 'load_gtag', 'debug_mode', 'track_forms', 'track_scroll', 'track_outbound', 'track_phone', 'track_email', 'track_downloads', 'track_video', 'spam_filter' ) as $flag ) {
 			$clean[ $flag ] = ! empty( $input[ $flag ] ) ? '1' : '0';
+		}
+
+		// Spam rule lines: keep what parses as a rule, one per line, capped.
+		foreach ( array( 'spam_add', 'spam_allow' ) as $key ) {
+			$clean[ $key ] = self::sanitize_rule_lines( (string) ( $input[ $key ] ?? '' ) );
 		}
 
 		// sanitize_text_field (not sanitize_html_class) so multi-class values survive.
@@ -537,6 +634,16 @@ class PPT_Settings {
 		) );
 	}
 
+	public function ajax_refresh_spam_rules(): void {
+		$this->ajax_guard();
+		$r = PPT_Spam::get_instance()->refresh();
+		if ( $r['ok'] ) {
+			/* translators: %d: rule count */
+			wp_send_json_success( array( 'message' => sprintf( __( 'Global list refreshed: %d rules. Reload the page to see them.', 'progressio-performance-tracker' ), $r['count'] ) ) );
+		}
+		wp_send_json_error( array( 'message' => $r['error'] ) );
+	}
+
 	/* =========================================================================
 	 * PAGE RENDER
 	 * ======================================================================= */
@@ -554,7 +661,16 @@ class PPT_Settings {
 			</h1>
 			<p class="ppt-intro"><?php esc_html_e( 'Configure GA4 event tracking for button clicks, form submissions, and visitor attribution.', 'progressio-performance-tracker' ); ?></p>
 
-			<?php settings_errors( PPT_OPTION_KEY ); ?>
+			<?php
+			settings_errors( PPT_OPTION_KEY );
+
+			// Opening the settings page is the one place a stale global list is
+			// refreshed synchronously; visitors' submissions never wait on it.
+			$spam = PPT_Spam::get_instance();
+			if ( $spam->is_enabled() && $spam->is_stale() && $spam->rules_endpoint() && (string) $this->get( 'leads_api_key' ) ) {
+				$spam->refresh();
+			}
+			?>
 
 			<?php $this->render_health_panel(); ?>
 
@@ -647,6 +763,18 @@ class PPT_Settings {
 			$checks[] = array( 'warn', __( 'Leads capture is off (no API key).', $td ) );
 		}
 
+		// ── Spam filter ──────────────────────────────────────────────────────
+		$spam = PPT_Spam::get_instance()->summary();
+		if ( $spam['enabled'] ) {
+			/* translators: 1: rules enforced, 2: global rules, 3: blocked count */
+			$checks[] = array( $spam['effective'] ? 'ok' : 'warn', sprintf( __( 'Spam filter on: %1$d rules enforced (%2$d global). %3$d submissions blocked so far.', $td ), $spam['effective'], $spam['global'], (int) $status['total_blocked'] ) );
+			if ( $spam['error'] && $spam['error_at'] >= $spam['fetched_at'] ) {
+				$checks[] = array( 'warn', sprintf( __( 'Global spam list could not be fetched: %s. Site-level rules and the last good copy still apply.', $td ), '<code>' . esc_html( $spam['error'] ) . '</code>' ) );
+			}
+		} else {
+			$checks[] = array( 'warn', __( 'Spam filter is off.', $td ) );
+		}
+
 		if ( '1' === (string) $this->get( 'debug_mode', '0' ) ) {
 			$checks[] = array( 'warn', __( 'Debug mode is on — disable on live client sites.', $td ) );
 		}
@@ -719,6 +847,7 @@ class PPT_Settings {
 				'i18n'    => array(
 					'sending'    => __( 'Sending…', 'progressio-performance-tracker' ),
 					'processing' => __( 'Processing…', 'progressio-performance-tracker' ),
+					'refreshing' => __( 'Refreshing…', 'progressio-performance-tracker' ),
 					'failed'     => __( 'Request failed.', 'progressio-performance-tracker' ),
 				),
 			) ) . ';',

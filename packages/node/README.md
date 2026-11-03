@@ -11,6 +11,9 @@ same way:
   contact extraction, same payload, same `submissionId` dedupe, same
   `ppt_last_lead` handshake so the browser fires `generate_lead` with the
   dashboard's lead id.
+- **Same spam filter.** `captureLead()` applies the dashboard's global block
+  list plus the site's own additions and exceptions, and flags what it
+  catches the way the plugin does.
 - **Retries.** The first attempt happens inline (5s cap, as on WordPress).
   Timeouts, 408/425/429 and 5xx are retried in the background with
   `waitUntil()`. 4xx is never retried.
@@ -92,6 +95,35 @@ they guess wrong.
 
 `captureLead()` never throws. Send the visitor's email (Resend, etc.) whatever
 it returns. A form with no email and no phone is skipped, as on WordPress.
+
+### 2b. Spam filter (optional)
+
+The same block list as the WordPress plugin: SEO, search-ad and AI-search
+pitches by phrase, sender domain, email address and phone number. The global
+list is maintained in the Progressio dashboard and fetched once per function
+instance (3 s cap, then cached for six hours; a failed fetch keeps the last
+copy). Turn it on with `PPT_SPAM_FILTER=1` or `spamFilter: true`:
+
+```js
+const lead = await captureLead(request, data, { formId: 'contact', spamFilter: true });
+if (lead.blocked) {
+  // Matched a rule. The dashboard already has it, flagged as blocked spam.
+  return Response.json({ error: 'Sorry, this message could not be sent.' }, { status: 422 });
+}
+// ...send the client's email as usual
+```
+
+Per-site tweaks, one rule per line (or `|`-separated in env):
+
+| Option | Env | Meaning |
+|---|---|---|
+| `spamAdd` | `PPT_SPAM_ADD` | Also block these here. |
+| `spamAllow` | `PPT_SPAM_ALLOW` | Ignore these global rules here (a client that sells SEO, say). |
+
+Bare lines are typed automatically: an email address, a bare domain, a phone
+number, otherwise a phrase. Prefix with `phrase:`, `domain:`, `email:` or
+`phone:` to force it. To decide before doing anything else, `checkSpam(data)`
+returns the verdict alone.
 
 ### 3. Tell the tracker the form went through
 

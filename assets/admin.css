@@ -20,9 +20,9 @@
 .ppt-health-warn .dashicons { color: #dba617; }
 .ppt-health-error .dashicons { color: #d63638; }
 .ppt-health-actions { margin: 14px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-#ppt-action-result { font-size: 13px; }
-#ppt-action-result.is-ok { color: #00a32a; }
-#ppt-action-result.is-error { color: #d63638; }
+#ppt-action-result, #ppt-spam-result { font-size: 13px; }
+#ppt-action-result.is-ok, #ppt-spam-result.is-ok { color: #00a32a; }
+#ppt-action-result.is-error, #ppt-spam-result.is-error { color: #d63638; }
 
 .ppt-map-table { max-width: 1100px; }
 .ppt-map-table input[type=text] { width: 100%; }
@@ -34,3 +34,12 @@
 .ppt-event-reference { background: #f9f9f9; border: 1px solid #ddd; border-radius: 6px; padding: 20px; margin-top: 24px; max-width: 900px; }
 .ppt-event-reference h2 { margin-top: 0; }
 .ppt-event-reference table { font-size: 13px; }
+
+.ppt-rule-lines { max-width: 600px; font-size: 13px; }
+.ppt-spam-error { color: #d63638; }
+.ppt-spam-rules { max-width: 600px; margin-top: 8px; }
+.ppt-spam-rules summary { cursor: pointer; color: #2271b1; }
+.ppt-spam-rules h4 { margin: 12px 0 4px; }
+.ppt-spam-rules h4 span { color: #666; font-weight: 400; }
+.ppt-spam-rules ul { margin: 0 0 8px; columns: 2; column-gap: 24px; }
+.ppt-spam-rules li { margin: 0 0 2px; break-inside: avoid; }

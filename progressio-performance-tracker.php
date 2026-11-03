@@ -3,7 +3,7 @@
  * Plugin Name:       Progressio Performance Tracker
  * Plugin URI:        https://progressiodev.com
  * Description:       Tracks button clicks, form submissions, and traffic attribution data, sending custom events to GA4. Connects traffic source to conversion action for client reporting.
- * Version:           1.5.0
+ * Version:           1.6.0
  * Requires at least: 5.9
  * Requires PHP:      8.0
  * Author:            Progressio Development
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants.
-define( 'PPT_VERSION', '1.5.0' );
+define( 'PPT_VERSION', '1.6.0' );
 define( 'PPT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PPT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'PPT_PLUGIN_FILE', __FILE__ );
@@ -28,12 +28,15 @@ define( 'PPT_OPTION_KEY', 'ppt_settings' );
 define( 'PPT_STATUS_KEY', 'ppt_lead_status' );
 define( 'PPT_QUEUE_KEY', 'ppt_lead_queue' );
 define( 'PPT_CRON_HOOK', 'ppt_process_lead_queue' );
+define( 'PPT_SPAM_RULES_KEY', 'ppt_spam_rules' );
+define( 'PPT_SPAM_CRON_HOOK', 'ppt_refresh_spam_rules' );
 define( 'PPT_DEFAULT_ENDPOINT', 'https://dashboard.progressiodev.com/api/leads' );
 
 // Load core includes.
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-settings.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-attribution.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-leads.php';
+require_once PPT_PLUGIN_DIR . 'includes/class-ppt-spam.php';
 require_once PPT_PLUGIN_DIR . 'includes/class-ppt-tracker.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -63,6 +66,7 @@ if ( file_exists( $ppt_puc ) ) {
 function ppt_init(): void {
 	PPT_Settings::get_instance();
 	PPT_Leads::get_instance();
+	PPT_Spam::get_instance();
 	PPT_Tracker::get_instance();
 }
 add_action( 'plugins_loaded', 'ppt_init' );
@@ -93,6 +97,11 @@ function ppt_default_options(): array {
 		'leads_api_key'       => '',
 		'leads_endpoint'      => PPT_DEFAULT_ENDPOINT,
 		'field_map'           => array(),
+		// Spam filter is off by default so an update never changes a live form's
+		// behaviour; activation turns it on for brand-new installs.
+		'spam_filter'         => '0',
+		'spam_add'            => '',
+		'spam_allow'          => '',
 	);
 }
 
@@ -102,7 +111,7 @@ function ppt_default_options(): array {
 function ppt_activate(): void {
 	$existing = get_option( PPT_OPTION_KEY );
 	if ( ! is_array( $existing ) ) {
-		add_option( PPT_OPTION_KEY, ppt_default_options() );
+		add_option( PPT_OPTION_KEY, array_merge( ppt_default_options(), array( 'spam_filter' => '1' ) ) );
 	} else {
 		// Upgrade path: add any keys introduced since the option was first written.
 		update_option( PPT_OPTION_KEY, array_merge( ppt_default_options(), $existing ) );
@@ -116,5 +125,6 @@ register_activation_hook( PPT_PLUGIN_FILE, 'ppt_activate' );
  */
 function ppt_deactivate(): void {
 	wp_clear_scheduled_hook( PPT_CRON_HOOK );
+	wp_clear_scheduled_hook( PPT_SPAM_CRON_HOOK );
 }
 register_deactivation_hook( PPT_PLUGIN_FILE, 'ppt_deactivate' );
