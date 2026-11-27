@@ -18,7 +18,7 @@
 | `X-PPT-Version` | `1.5.0` | **New.** Plugin version, for compatibility gating. |
 | `User-Agent` | `ProgressioPerformanceTracker/1.5.0 (https://client-site.com)` | |
 
-`apiKey` is **still sent in the body** for backwards compatibility. Once the API accepts the `Authorization` header, tell me and the plugin will stop sending it in the body (v1.6).
+`apiKey` is **still sent in the body** for backwards compatibility. Once the API accepts the `Authorization` header, tell me and the plugin will stop sending it in the body (done in v1.7.0).
 
 Delivery is now **blocking with a 5 s timeout** from the visitor's form submission, so keep the endpoint fast — accept, enqueue internally if you must, respond.
 

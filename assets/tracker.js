@@ -4,7 +4,7 @@
  * Fires GA4 custom events for:
  *   - CTA clicks (data-ppt-cta attributes, or primary / secondary / tertiary classes)
  *   - Form submissions (WS Form, Gravity Forms, WPForms, CF7, Fluent, Formidable,
- *     Ninja, Elementor Pro, generic) and generate_lead once the Leads API accepts one
+ *     Ninja, Elementor Pro, Bricks, generic) and generate_lead once the Leads API accepts one
  *   - Scroll depth milestones
  *   - Outbound link clicks, file downloads, phone (tel:) and email (mailto:) clicks
  *   - Video engagement (YouTube, Vimeo, HTML5)
@@ -15,7 +15,12 @@
  *   cookie. Both are read server-side by class-ppt-leads.php. The cookie
  *   format uses short keys — keep PPT_Attribution::KEYS in sync.
  *
- * Configuration arrives as window.pptConfig (see class-ppt-tracker.php).
+ * Configuration arrives as window.pptConfig (see class-ppt-tracker.php, or
+ * trackerScripts() in packages/node for non-WordPress sites).
+ *
+ * Public API, for forms the tracker cannot hook itself (custom fetch() submits
+ * on Node sites): window.ppt.formSubmitted( formId, formTitle, plugin ) once
+ * the server has accepted the form.
  */
 
 ( function () {
@@ -26,7 +31,7 @@
 	}
 
 	var cfg  = window.pptConfig;
-	var SITE = String( cfg.siteDomain || '' ).toLowerCase().replace( /^www\./, '' );
+	var SITE = String( cfg.siteDomain || location.hostname || '' ).toLowerCase().replace( /^www\./, '' );
 
 	var UTM_KEYS   = { utm_source: 's', utm_medium: 'm', utm_campaign: 'c', utm_term: 't', utm_content: 'n' };
 	var CLICK_KEYS = { gclid: 'g', fbclid: 'f', msclkid: 'ms', ttclid: 'tt', li_fat_id: 'li', dclid: 'dc' };
@@ -361,7 +366,7 @@
 		'.wpcf7-form', '.wpforms-form', 'form[id^="gform_"]', '.gform_wrapper form',
 		'form.wsf-form', 'form[id^="ws-form-"]', 'form[data-wsf-form-id]',
 		'.frm-fluent-form', 'form[class*="fluent_form"]', '.frm-show-form',
-		'.nf-form-cont form', '.elementor-form',
+		'.nf-form-cont form', '.elementor-form', 'form.brxe-form', '.brxe-form form',
 	].join( ',' );
 
 	var IGNORED_FORM_SELECTOR = 'form[role="search"], .search-form, #searchform, #commentform, #loginform, form.woocommerce-cart-form, form.woocommerce-ordering';
@@ -513,6 +518,15 @@
 				var id     = ( hidden && hidden.value ) || form.getAttribute( 'name' ) || form.id || '';
 				var title  = form.getAttribute( 'name' ) || form.getAttribute( 'aria-label' ) || ( id ? 'Elementor Form ' + id : 'Elementor Form' );
 				fireFormSubmit( id, title, 'elementor' );
+			} );
+		}
+
+		/* Bricks native forms: success is a document event carrying the element id. */
+		if ( isAuto || plugin === 'bricks' ) {
+			document.addEventListener( 'bricks/form/success', function ( e ) {
+				var detail = e.detail || {};
+				var id     = detail.elementId || '';
+				fireFormSubmit( id, 'Bricks Form ' + id, 'bricks' );
 			} );
 		}
 
@@ -829,6 +843,32 @@
 			} ).observe( document.documentElement, { childList: true, subtree: true } );
 		}
 	}
+
+	/* ─── Public API ────────────────────────────────────────────────────────── */
+
+	/**
+	 * Report a successful submission of a form the tracker cannot hook itself.
+	 * Call it after the server responds OK, so the ppt_last_lead cookie set by
+	 * that response is there for generate_lead. Unlike fireFormSubmit(), the
+	 * generate_lead check runs even when form_submit was just fired by another
+	 * listener for the same submission.
+	 */
+	window.ppt = window.ppt || {};
+	window.ppt.formSubmitted = function ( formId, formTitle, plugin ) {
+		if ( ! cfg.trackForms ) return;
+
+		var params = {
+			form_id     : clip( formId || 'unknown', 100 ),
+			form_title  : clip( formTitle || formId || 'unknown', 100 ),
+			form_plugin : clip( plugin || 'custom', 40 ),
+		};
+		var now = Date.now();
+		if ( now - lastFormFire >= 1500 ) {
+			lastFormFire = now;
+			sendEvent( 'form_submit', params );
+		}
+		maybeFireGenerateLead( params );
+	};
 
 	/* ─── Init ──────────────────────────────────────────────────────────────── */
 

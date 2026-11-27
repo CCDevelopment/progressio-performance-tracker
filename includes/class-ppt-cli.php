@@ -7,6 +7,8 @@
  *   wp ppt queue [--process|--clear]
  *   wp ppt get <key>              Read a setting.
  *   wp ppt set <key> <value>      Write a setting (runs the same validation as the UI).
+ *   wp ppt spam [--refresh] [--test=<text>]
+ *                                 Spam filter status; refresh the global list; test a string.
  *
  * @package Progressio_Performance_Tracker
  */
@@ -172,7 +174,7 @@ class PPT_CLI {
 
 		// Re-express as the form would post it: checkboxes omitted when off,
 		// and the API key only present when it is being changed.
-		foreach ( array( 'load_gtag', 'debug_mode', 'track_forms', 'track_scroll', 'track_outbound', 'track_phone', 'track_email', 'track_downloads', 'track_video' ) as $flag ) {
+		foreach ( array( 'load_gtag', 'debug_mode', 'track_forms', 'track_scroll', 'track_outbound', 'track_phone', 'track_email', 'track_downloads', 'track_video', 'spam_filter' ) as $flag ) {
 			if ( '1' !== (string) $input[ $flag ] ) {
 				unset( $input[ $flag ] );
 			}
@@ -190,6 +192,57 @@ class PPT_CLI {
 		}
 		update_option( PPT_OPTION_KEY, $clean );
 		WP_CLI::success( "Updated {$key}." );
+	}
+
+	/**
+	 * Spam filter status, refresh the global list, or test a string against the rules.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--refresh]
+	 * : Fetch the global list from the dashboard now.
+	 *
+	 * [--test=<text>]
+	 * : Report which rule (if any) the text would trip.
+	 *
+	 * [--format=<format>]
+	 * : table (default) or json.
+	 *
+	 * @subcommand spam
+	 */
+	public function spam( array $args, array $assoc ): void {
+		$spam = PPT_Spam::get_instance();
+
+		if ( isset( $assoc['refresh'] ) ) {
+			$r = $spam->refresh();
+			if ( ! $r['ok'] ) {
+				WP_CLI::error( $r['error'] );
+			}
+			WP_CLI::success( sprintf( 'Global list refreshed: %d rules.', $r['count'] ) );
+		}
+
+		if ( isset( $assoc['test'] ) ) {
+			$hit = $spam->evaluate( array( array( 'id' => 'test', 'label' => 'test', 'type' => 'text', 'value' => (string) $assoc['test'] ) ) );
+			WP_CLI::log( $hit ? sprintf( 'BLOCKED by %s rule "%s".', $hit['type'], $hit['rule'] ) : 'Allowed: no rule matched.' );
+			return;
+		}
+
+		$s    = $spam->summary();
+		$st   = PPT_Leads::get_instance()->get_status();
+		$rows = array(
+			array( 'key' => 'enabled', 'value' => $s['enabled'] ? 'yes' : 'no' ),
+			array( 'key' => 'rules_endpoint', 'value' => $s['endpoint'] ?: '(invalid)' ),
+			array( 'key' => 'global_rules', 'value' => (string) $s['global'] ),
+			array( 'key' => 'site_additions', 'value' => (string) $s['additions'] ),
+			array( 'key' => 'site_exceptions', 'value' => (string) $s['exceptions'] ),
+			array( 'key' => 'effective_rules', 'value' => (string) $s['effective'] ),
+			array( 'key' => 'fetched_at', 'value' => $s['fetched_at'] ? gmdate( 'c', $s['fetched_at'] ) : '(never)' ),
+			array( 'key' => 'list_updated_at', 'value' => $s['updated_at'] ?: '-' ),
+			array( 'key' => 'last_fetch_error', 'value' => $s['error'] ? gmdate( 'c', $s['error_at'] ) . ' ' . $s['error'] : '-' ),
+			array( 'key' => 'total_blocked', 'value' => (string) $st['total_blocked'] ),
+			array( 'key' => 'last_blocked', 'value' => $st['last_blocked_at'] ? gmdate( 'c', $st['last_blocked_at'] ) . ' ' . $st['last_blocked_rule'] : '-' ),
+		);
+		WP_CLI\Utils\format_items( $assoc['format'] ?? 'table', $rows, array( 'key', 'value' ) );
 	}
 }
 

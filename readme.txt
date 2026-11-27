@@ -4,7 +4,7 @@ Tags: ga4, google analytics, conversion tracking, event tracking, button clicks
 Requires at least: 5.9
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,7 @@ Progressio Performance Tracker fires custom GA4 events whenever a visitor intera
 
 = What It Tracks =
 * **CTA Button Clicks** — Three configurable tiers by CSS class, or `data-ppt-cta="primary"` / `data-ppt-label="…"` attributes on any element
-* **Form Submissions** — WS Form, Gravity Forms, WPForms, Contact Form 7, Fluent Forms, Formidable Forms, Ninja Forms, Elementor Pro Forms, Generic fallback
+* **Form Submissions**: WS Form, Gravity Forms, WPForms, Contact Form 7, Fluent Forms, Formidable Forms, Ninja Forms, Elementor Pro Forms, Bricks Forms, Generic fallback
 * **Leads** — `generate_lead` fires once the Progressio Leads API accepts a submission
 * **Scroll Depth** — 25%, 50%, 75%, 100% milestones
 * **Outbound Link Clicks**, **File Downloads** (PDF, docs, spreadsheets, archives, media)
@@ -29,11 +29,14 @@ The first touch (how the visitor originally found the site — UTM parameters, g
 = Lead Capture =
 With a Leads API key set, form submissions are captured server-side (immune to ad-blockers) and sent to the Progressio dashboard with name, email, phone, message, full attribution, a stable visitor ID and a contact hash for deduplication. Delivery is confirmed; failures are queued and retried automatically with backoff. An optional per-form field mapping pins exactly which fields hold the contact details.
 
+= Spam Filter =
+Blocks the SEO, search-ad and AI-search pitches that reach contact forms. Rules are plain strings (phrases, sender domains, email addresses, phone numbers). The global list is maintained in the Progressio dashboard and refreshed twice a day; each site can add its own entries and exempt global ones. A match is rejected in the form plugin's own validation step, before the client is emailed, and is still sent to the dashboard flagged as blocked spam so nothing is lost and the list can be tuned. Works with every supported form plugin, including Bricks native forms.
+
 = Configuration via wp-config.php =
 `PPT_LEADS_API_KEY`, `PPT_LEADS_ENDPOINT` and `PPT_MEASUREMENT_ID` constants override the stored settings, so secrets never need to live in the database. The `ppt_settings` filter does the same from an mu-plugin.
 
 = WP-CLI =
-`wp ppt status`, `wp ppt test-lead`, `wp ppt queue [--process|--clear]`, `wp ppt get <key>`, `wp ppt set <key> <value>`.
+`wp ppt status`, `wp ppt test-lead`, `wp ppt queue [--process|--clear]`, `wp ppt spam [--refresh|--test=<text>]`, `wp ppt get <key>`, `wp ppt set <key> <value>`.
 
 == Installation ==
 
@@ -58,6 +61,21 @@ Select "Generic (HTML form submit fallback)". It listens for the native form sub
 Add a row under **Lead Field Mapping** for that form. Keys match the field ID or label; join several with `|` (e.g. `First Name|Last Name`).
 
 == Changelog ==
+
+= 1.7.0 =
+**Spam filter**
+* New Spam Filter section. Rules are plain strings of four kinds: phrases (whole-word, case-insensitive, hyphen and space flexible), sender domains (matched in email addresses and links, subdomains included), email addresses and phone numbers (matched in any format, including numbers buried in a message).
+* The global block list is fetched from the dashboard (`GET …/api/spam-rules`, same API key) and cached; refreshed twice a day by WP-Cron, on demand from the settings page, or with `wp ppt spam --refresh`. A failed fetch keeps the last good copy.
+* Per-site "Also block" and "Never block" lists, one entry per line, so a client that sells SEO can exempt the SEO phrases.
+* Matching submissions are rejected in the form plugin's own validation hook, before the client is emailed: WS Form, Gravity Forms, WPForms, Contact Form 7 (marked as spam), Fluent Forms, Formidable Forms, Ninja Forms, Elementor Pro Forms and Bricks native forms. The visitor sees "Sorry, this message could not be sent." (filterable via `ppt_spam_block_message`).
+* Blocked submissions are still sent to the Leads API with `isSpam: true`, `spamReason`, `spamRule` and `blocked: true`, and never fire `generate_lead`. Anything a plugin delivers anyway is flagged the same way as a fallback.
+* Off by default on existing sites (an update never changes a live form); on for new installs. Status panel shows rules in force and submissions blocked; `ppt_spam_rules` and `ppt_spam_blocked` hooks for customisation.
+
+**Bricks native forms**
+* Lead capture via `bricks/form/response` (fires only after every form action succeeded) and GA4 `form_submit` via the `bricks/form/success` browser event. Selectable as a form plugin and auto-detected.
+
+**Leads API**
+* The API key is no longer sent in the request body; the `Authorization: Bearer` header (sent since 1.5.0) is the only credential.
 
 = 1.6.0 =
 **SEO meta over the REST API**
