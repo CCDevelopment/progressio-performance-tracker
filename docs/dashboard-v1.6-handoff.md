@@ -1,7 +1,7 @@
-# Hand-off: Dashboard changes for Performance Tracker v1.6.0
+# Hand-off: Dashboard changes for Performance Tracker v1.7.0
 
 **For:** the Progressio dashboard (`https://dashboard.progressiodev.com/api/…`)
-**From:** progressio-performance-tracker plugin v1.6.0 and `@progressio/performance-tracker` (Node) 1.6.0
+**From:** progressio-performance-tracker plugin v1.7.0 and `@progressio/performance-tracker` (Node) 1.7.0. (v1.6.0 was the SEO meta release; its dashboard notes are in section 6 of the leads hand-off below. This file keeps its v1.6 name so existing links still work.)
 **Builds on:** [dashboard-leads-api-handoff.md](dashboard-leads-api-handoff.md) (v1.5.0), which still describes the lead payload and response contract.
 
 Three changes. The first two are small; the third is the new spam-rules feature and needs a new endpoint plus an admin screen.
@@ -10,7 +10,7 @@ Three changes. The first two are small; the third is the new spam-rules feature 
 
 ## 1. The API key has left the request body
 
-v1.5.0 sent the key twice: `Authorization: Bearer <key>` and `apiKey` in the JSON body. v1.6.0 sends only the header. Nothing else about the request changed. If the endpoint still reads `apiKey` from the body as a fallback, that path is now dead code for 1.6+ sites and can go.
+v1.5.0 and v1.6.0 sent the key twice: `Authorization: Bearer <key>` and `apiKey` in the JSON body. v1.7.0 sends only the header. Nothing else about the request changed. If the endpoint still reads `apiKey` from the body as a fallback, that path is dead code for 1.7+ sites and can go once no site runs an older version.
 
 ## 2. New lead payload keys
 
@@ -41,7 +41,7 @@ The plugin pulls the global block list from here. Same authentication as `/api/l
 | `Authorization` | `Bearer <leads api key>` (the client site's key) |
 | `Accept` | `application/json` |
 | `X-PPT-Version` | plugin / package version |
-| `User-Agent` | `ProgressioPerformanceTracker/1.6.0 (https://client-site.com)` |
+| `User-Agent` | `ProgressioPerformanceTracker/1.7.0 (https://client-site.com)` |
 
 No query parameters. The plugin fetches at most twice a day per site (WP-Cron), plus on demand from its settings page. Node sites fetch once per function instance and cache for six hours. A `4xx`/`5xx` or timeout makes the site keep its last good copy and try again later (10 minutes on Node, next cron on WordPress), so the endpoint being down costs nothing but staleness.
 
@@ -77,4 +77,4 @@ A single "Spam rules" page, one table per type, add/remove rows, with a note of 
 2. **Store `spamReason`, `spamRule`, `blocked`;** exclude `blocked` leads from the inbox and from counts.
 3. **Blocked / flagged view** with release-to-inbox.
 4. **Rules admin screen** with per-rule hit counts.
-5. Drop the body `apiKey` fallback once every site reports `pluginVersion` ≥ 1.6.0.
+5. Drop the body `apiKey` fallback once every site reports `pluginVersion` ≥ 1.7.0.

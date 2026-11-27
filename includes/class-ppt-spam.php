@@ -618,7 +618,16 @@ class PPT_Spam {
 	 * @param array{fields:array,form_id:string,title:string} $n
 	 */
 	private function block( string $plugin, array $n ): ?array {
-		$hit = $this->evaluate( $n['fields'] );
+		// Some plugins fire their validation filter twice per submission (Fluent
+		// Forms runs both its current and its deprecated hook name). Report each
+		// submission once per request.
+		static $seen = array();
+		$key = $plugin . '|' . (string) $n['form_id'] . '|' . md5( (string) wp_json_encode( $n['fields'] ) );
+		if ( array_key_exists( $key, $seen ) ) {
+			return $seen[ $key ];
+		}
+		$hit          = $this->evaluate( $n['fields'] );
+		$seen[ $key ] = $hit;
 		if ( ! $hit ) {
 			return null;
 		}

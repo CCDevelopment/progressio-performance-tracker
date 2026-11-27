@@ -1,6 +1,6 @@
 {
   "name": "@progressio/performance-tracker",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Progressio Performance Tracker for Node sites (Next.js, Astro, plain Vercel functions): the same GA4 tracking, attribution and Leads API delivery as the WordPress plugin.",
   "type": "module",
   "license": "GPL-2.0-or-later",
@@ -27,7 +27,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "ppt": "./bin/ppt.mjs"
+    "ppt": "bin/ppt.mjs"
   },
   "files": [
     "src",

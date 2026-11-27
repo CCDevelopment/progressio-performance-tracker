@@ -98,6 +98,7 @@ test('getSpamRules fetches with the bearer key, caches, and keeps the last copy 
 
   assert.equal(spamRulesEndpoint('https://staging.example/api/leads/'), 'https://staging.example/api/spam-rules');
   assert.equal(spamRulesEndpoint('https://staging.example/api/v2'), 'https://staging.example/api/v2/spam-rules');
+  assert.equal(spamRulesEndpoint('https://staging.example/api/spam-rules'), 'https://staging.example/api/spam-rules', 'an explicit rules URL is used as is');
 });
 
 const req = () => new Request('https://www.example.com/api/contact', { method: 'POST', headers: { cookie: '', referer: 'https://www.example.com/contact/' } });

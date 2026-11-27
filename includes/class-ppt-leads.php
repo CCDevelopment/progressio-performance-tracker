@@ -729,7 +729,7 @@ class PPT_Leads {
 		$ip    = (string) apply_filters( 'ppt_client_ip', $_SERVER['REMOTE_ADDR'] ?? '' ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
 		$ua    = isset( $_SERVER['HTTP_USER_AGENT'] ) ? substr( sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ), 0, 255 ) : '';
 
-		// The API key travels only in the Authorization header (since 1.6.0).
+		// The API key travels only in the Authorization header (since 1.7.0).
 		$payload = array(
 			'name'               => $contact['name'] ?? null,
 			'email'              => $email ?: null,
@@ -773,6 +773,7 @@ class PPT_Leads {
 
 			'siteUrl'            => home_url(),
 			'pluginVersion'      => PPT_VERSION,
+			'seoPlugin'          => PPT_SEO_Meta::detected_label(),
 			'submittedAt'        => gmdate( 'c' ),
 		);
 
@@ -980,7 +981,10 @@ class PPT_Leads {
 				continue;
 			}
 
-			$result = $this->send( (array) $item['payload'] );
+			// Items queued by 1.6.0 and earlier still carry the key in the body.
+			$payload = (array) $item['payload'];
+			unset( $payload['apiKey'] );
+			$result = $this->send( $payload );
 			if ( $result['ok'] ) {
 				$this->record_success( $result['lead_id'] );
 				$stats['sent']++;

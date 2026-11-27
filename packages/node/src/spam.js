@@ -201,6 +201,8 @@ export function evaluateSpam(fields, rules) {
 /** …/api/leads → …/api/spam-rules, as PPT_Spam::rules_endpoint() does. */
 export function spamRulesEndpoint(leadsEndpoint) {
   const leads = String(leadsEndpoint || DEFAULT_ENDPOINT);
+  // Already a rules URL (a spamRulesEndpoint / PPT_SPAM_RULES_ENDPOINT override): use it as is.
+  if (/\/spam-rules\/?$/.test(leads)) return leads;
   return /\/leads\/?$/.test(leads) ? leads.replace(/\/leads\/?$/, '/spam-rules') : `${leads.replace(/\/+$/, '')}/spam-rules`;
 }
 

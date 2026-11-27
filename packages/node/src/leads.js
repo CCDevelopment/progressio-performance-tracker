@@ -188,7 +188,7 @@ export async function sendLead(payload, { apiKey, endpoint, siteUrl = '', timeou
     return { ok: true, code: res.status, error: '', leadId: leadIdFromBody(body), retry: false };
   }
 
-  // 4xx (other than rate-limit/timeout) means the request itself is bad —
+  // 4xx (other than rate-limit/timeout) means the request itself is bad;
   // retrying the same payload won't help.
   const retry = res.status >= 500 || [408, 425, 429].includes(res.status);
   const error = `HTTP ${res.status}: ${sanitizeText(body).slice(0, 200) || res.statusText}`;

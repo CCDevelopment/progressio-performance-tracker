@@ -18,7 +18,7 @@ same way:
   Timeouts, 408/425/429 and 5xx are retried in the background with
   `waitUntil()`. 4xx is never retried.
 
-Versions move together with the plugin: package 1.6.0 ships the 1.6.0 tracker.
+Versions move together with the plugin: package 1.7.0 ships the 1.7.0 tracker.
 
 ## Install
 

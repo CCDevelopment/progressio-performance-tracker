@@ -54,7 +54,7 @@ test('payload matches the WordPress plugin', async () => {
   const { url, init, body: p } = api.calls[0];
   assert.equal(url, 'https://dashboard.progressiodev.com/api/leads');
   assert.equal(init.headers.Authorization, 'Bearer test-key-abcdef');
-  assert.equal(init.headers['X-PPT-Version'], '1.6.0');
+  assert.equal(init.headers['X-PPT-Version'], '1.7.0');
   assert.equal(p.apiKey, undefined, 'key never sent in the body');
   assert.equal(p.email, 'bob@example.com');
   assert.equal(p.name, 'Bob');
@@ -75,7 +75,7 @@ test('payload matches the WordPress plugin', async () => {
   assert.equal(p.formPlugin, 'cf7');
   assert.equal(p.formTitle, 'Contact');
   assert.equal(p.formId, '5');
-  assert.equal(p.pluginVersion, '1.6.0');
+  assert.equal(p.pluginVersion, '1.7.0');
   assert.equal(p.siteUrl, 'https://www.example.com');
   assert.equal(p.userAgent, 'TestUA');
   assert.ok(!('phone' in p) && !('message' in p) && !('test' in p), 'empty fields omitted');

@@ -129,7 +129,7 @@ export function sanitizeTouch(data) {
     if (value !== null && value !== '') touch[full] = value;
   }
 
-  // Never trust the client's channel label outright — recompute it.
+  // Never trust the client's channel label outright. Recompute it.
   if (Object.keys(touch).length) touch.channel = classify(touch);
 
   return touch;
@@ -137,7 +137,7 @@ export function sanitizeTouch(data) {
 
 /**
  * Classify a touch into a marketing channel. Mirrors PPT_Attribution::classify()
- * and classifyChannel() in tracker.js — keep the three in sync.
+ * and classifyChannel() in tracker.js. Keep the three in sync.
  */
 export function classify(t) {
   const src = String(t.source || '').toLowerCase();
@@ -166,7 +166,7 @@ export function classify(t) {
   if (med === 'affiliate') return 'Affiliate';
   if (med === 'sms') return 'SMS';
 
-  // No recognised medium — fall back to what the source/referrer looks like.
+  // No recognised medium: fall back to what the source/referrer looks like.
   if (isSearch) return 'Organic Search';
   if (isSocial) return 'Organic Social';
   if (src !== '' || ref !== '') return 'Referral';

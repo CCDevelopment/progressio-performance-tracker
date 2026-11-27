@@ -4,7 +4,7 @@ Tags: ga4, google analytics, conversion tracking, event tracking, button clicks
 Requires at least: 5.9
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,7 @@ Progressio Performance Tracker fires custom GA4 events whenever a visitor intera
 
 = What It Tracks =
 * **CTA Button Clicks** — Three configurable tiers by CSS class, or `data-ppt-cta="primary"` / `data-ppt-label="…"` attributes on any element
-* **Form Submissions** — WS Form, Gravity Forms, WPForms, Contact Form 7, Fluent Forms, Formidable Forms, Ninja Forms, Elementor Pro Forms, Bricks Forms, Generic fallback
+* **Form Submissions**: WS Form, Gravity Forms, WPForms, Contact Form 7, Fluent Forms, Formidable Forms, Ninja Forms, Elementor Pro Forms, Bricks Forms, Generic fallback
 * **Leads** — `generate_lead` fires once the Progressio Leads API accepts a submission
 * **Scroll Depth** — 25%, 50%, 75%, 100% milestones
 * **Outbound Link Clicks**, **File Downloads** (PDF, docs, spreadsheets, archives, media)
@@ -62,7 +62,7 @@ Add a row under **Lead Field Mapping** for that form. Keys match the field ID or
 
 == Changelog ==
 
-= 1.6.0 =
+= 1.7.0 =
 **Spam filter**
 * New Spam Filter section. Rules are plain strings of four kinds: phrases (whole-word, case-insensitive, hyphen and space flexible), sender domains (matched in email addresses and links, subdomains included), email addresses and phone numbers (matched in any format, including numbers buried in a message).
 * The global block list is fetched from the dashboard (`GET …/api/spam-rules`, same API key) and cached; refreshed twice a day by WP-Cron, on demand from the settings page, or with `wp ppt spam --refresh`. A failed fetch keeps the last good copy.
@@ -76,6 +76,18 @@ Add a row under **Lead Field Mapping** for that form. Keys match the field ID or
 
 **Leads API**
 * The API key is no longer sent in the request body; the `Authorization: Bearer` header (sent since 1.5.0) is the only credential.
+
+= 1.6.0 =
+**SEO meta over the REST API**
+* SEO title, meta description and focus keyword can now be set over the WordPress REST API (`POST`/`PUT` to `/wp/v2/posts`, `meta` object) on sites running Rank Math. Rank Math stores these as ordinary post meta and does not register the keys for REST writes, so WordPress discarded them silently — the post saved with a `201` and the SEO fields stayed empty, with nothing in the response to indicate it. This lets the Progressio Dash content pipeline publish posts with their SEO fields already filled in.
+* Supported plugins and keys — only the keys of the plugin actually active are considered, so no orphan meta is created:
+  * **Rank Math** — `rank_math_title`, `rank_math_description`, `rank_math_focus_keyword`
+  * **Yoast SEO** — `_yoast_wpseo_title`, `_yoast_wpseo_metadesc`, `_yoast_wpseo_focuskw`
+* Current Yoast releases (verified on Yoast SEO 28.5) already register these three keys for REST themselves, so they were already writable there. Any key an SEO plugin already exposes is left untouched rather than re-registered — re-registering would silently replace that plugin's own sanitize and auth callbacks with ours. Older Yoast builds that lack the registration are still covered.
+* Writes are gated on the `edit_post` capability for the specific post, so an authenticated low-privilege user (a Subscriber, for example) cannot rewrite SEO meta. Registration covers the `post` post type; widen it with the `ppt_seo_meta_post_types` filter.
+* Only single-line string fields are exposed. Robots directives, schema and social overrides are array or serialized values and are deliberately left alone.
+* Sites running neither Rank Math nor Yoast register nothing and are unaffected; deactivating the SEO plugin is safe.
+* Lead payloads now carry a read-only `seoPlugin` field (`rank_math`, `yoast`, `rank_math+yoast` or `none`) so the dashboard can report whether SEO meta is writable without having to attempt a publish first.
 
 = 1.5.0 =
 **Security**
